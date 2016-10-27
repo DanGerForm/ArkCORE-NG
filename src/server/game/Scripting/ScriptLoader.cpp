@@ -396,6 +396,7 @@ void AddSC_boss_hagara();
 void AddSC_boss_warlord();
 void AddSC_boss_ultraxion();
 void AddSC_boss_warmaster_blackhorn();
+void AddSC_spine_of_deathwing();
 void AddSC_boss_deathwing();
 void AddSC_dragon_soul();
 void AddSC_instance_dragon_soul();
@@ -1276,6 +1277,7 @@ void AddKalimdorScripts()
     AddSC_boss_warlord();
     AddSC_boss_ultraxion();
     AddSC_boss_warmaster_blackhorn();
+	AddSC_spine_of_deathwing();
     AddSC_boss_deathwing();
     AddSC_boss_arcurion();                  //CoT Hour Of Twilight
     AddSC_instance_hour_of_twilight();
