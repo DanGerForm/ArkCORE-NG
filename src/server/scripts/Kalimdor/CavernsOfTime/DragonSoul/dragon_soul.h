@@ -23,12 +23,21 @@ enum Bosses
     BOSS_HAGARA             = 3,
     BOSS_ULTRAXION          = 4,
     BOSS_WARMASTER          = 5,
-    BOSS_DEATHWING          = 6,
-    DATA_PORTALS_ON_OFF     = 7,
-    DATA_WAVE               = 8,
-    DATA_TRALL_VS_ULTRAXION = 9,
-
-    MAX_ENCOUNTER           = 10,
+	DATA_SPINE              = 6,
+    BOSS_DEATHWING          = 7,
+    DATA_PORTALS_ON_OFF     = 8,
+    DATA_WAVE               = 9,
+    DATA_TRALL_VS_ULTRAXION = 10,
+    DATA_BACK_PLATE_1       = 11,
+    DATA_BACK_PLATE_2       = 12,
+    DATA_BACK_PLATE_3       = 13,
+	DATA_SWAYZE             = 14,
+    DATA_REEVS              = 15,
+	DATA_GREATER_CACHE_10N  = 16,
+    DATA_GREATER_CACHE_25N  = 17,
+    DATA_GREATER_CACHE_10H  = 18,
+	DATA_GREATER_CACHE_25H  = 19,
+    MAX_ENCOUNTER           = 20,
 };
 
 enum Data
@@ -57,6 +66,9 @@ enum GameObject_
     GO_DEATHWING_LOOT_25N = 209895,
     GO_DEATHWING_LOOT_10H = 209896,
     GO_DEATHWING_LOOT_25H = 209897,
+	GO_DEATHWING_BACK_PLATE_1 = 209623,
+    GO_DEATHWING_BACK_PLATE_2 = 209631,
+	GO_DEATHWING_BACK_PLATE_3 = 209632
 };
 
 enum Spell_aspect
@@ -66,6 +78,16 @@ enum Spell_aspect
     SOURCE_OF_MAGIC          = 105903,
     ESSENCE_OF_DREAMS        = 105900,
     GIFT_OF_LIFE             = 105896,
+};
+
+enum SharedSpells
+{
+	SPELL_DRAGON_SOUL_PARATROOPER_KIT_1         = 104953, // Swayze has it while jumping to spine of deathwing
+	SPELL_DRAGON_SOUL_PARATROOPER_KIT_2 = 105008, // Reevs has it while jumping to spine of deathwing
+	SPELL_TELEPORT_SINGLE_TO_DEATHWINGS_BACK = 106054,
+	SPELL_PARACHUTE                             = 110660, // used by players
+
+    SPELL_PLAY_MOVIE_DEATHWING_2 = 106085, // movie before jumping at spine of deathwing
 };
 
 enum Creatures
@@ -78,7 +100,8 @@ enum Creatures
     NPC_WARMASTER    = 56427,
     NPC_DEATHWING_1  = 56173,
     NPC_DEATHWING_2  = 0,
-
+	NPC_SPINE_OF_DEATHWING = 53879, // 109983 105003 109035 95278 105036
+	
     NPC_MAELSTROM_ALEXSTRASZA = 56099,
     NPC_MAELSTROM_TRALL       = 56103,
     NPC_MAELSTROM_KALECGOS    = 56101,
@@ -138,6 +161,10 @@ enum Creatures
     NPC_PORTAL_MAELSTROM = 57443, // Portal - Travel to The Maelstrom
 
 };
+
+const Position madnessdeathwingPos  = {-12081.390625f,  12160.050781f,  30.60f,     6.03f};
+const Position skyfirePos = {13444.9f, -12133.3f, 151.21f, 0.0f};
+const Position spinedeathwingPos = {-13852.5f, -13665.38f, 297.3786f, 1.53589f};
 
 template<class AI>
 CreatureAI* GetDragonSoulAI(Creature* creature)

@@ -156,10 +156,11 @@ public:
         return new npc_spine_of_deathwing_deathwingAI(pCreature);
     }
 
-    struct npc_spine_of_deathwing_deathwingAI : public Scripted_NoMovementAI
+    struct npc_spine_of_deathwing_deathwingAI : public ScriptedAI
     {
-        npc_spine_of_deathwing_deathwingAI(Creature* pCreature) : Scripted_NoMovementAI(pCreature)
+        npc_spine_of_deathwing_deathwingAI(Creature* pCreature) : ScriptedAI(pCreature)
         {
+			me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_DISABLE_MOVE);
             me->SetReactState(REACT_PASSIVE);
             me->setActive(true);
             pInstance = me->GetInstanceScript();
@@ -274,8 +275,8 @@ public:
                     DoCastAOE(SPELL_PLAY_MOVIE);
                     if (pInstance)
                     {
-                        pInstance->DoModifyPlayerCurrencies(CURRENCY_TYPE_VALOR_POINTS, (IsHeroic() ? 140 : 120));
-                        pInstance->DoModifyPlayerCurrencies(CURRENCY_TYPE_MOTE_OF_DARKNESS, 1);
+                        //pInstance->DoModifyPlayerCurrencies(CURRENCY_TYPE_VALOR_POINTS, (IsHeroic() ? 140 : 120));
+                        //pInstance->DoModifyPlayerCurrencies(CURRENCY_TYPE_MOTE_OF_DARKNESS, 1);
                         pInstance->SetBossState(DATA_SPINE, DONE);
                         switch (GetDifficulty())
                         {
@@ -292,8 +293,8 @@ public:
                             pInstance->DoRespawnGameObject(pInstance->GetData64(DATA_GREATER_CACHE_25H), DAY);
                             break;
                         }
-                        pInstance->DoStartMovie(75);
-                        pInstance->DoNearTeleportPlayers(madnessdeathwingPos);
+                        //pInstance->DoStartMovie(75);
+                        //pInstance->DoNearTeleportPlayers(madnessdeathwingPos);
                     }                            
                     break;
                 case EVENT_SUMMON_CORRUPTED_BLOOD:
@@ -461,13 +462,13 @@ public:
             AnyLivePlayerNoGmCheck(WorldObject const* obj, float range, bool withAura = false) : _obj(obj), _range(range), _withAura(withAura) {}
             bool operator()(Player* u)
             {
-                if (!u->isAlive())
+                if (!u->IsAlive())
                     return false;
 
                 if (!_obj->IsWithinDistInMap(u, _range))
                     return false;
 
-                if (u->isGameMaster())
+                if (u->IsGameMaster())
                     return false;
 
                 if (_withAura)
@@ -498,9 +499,9 @@ public:
         return new npc_spine_of_deathwing_corruptionAI(pCreature);
     }
 
-    struct npc_spine_of_deathwing_corruptionAI : public Scripted_NoMovementAI
+    struct npc_spine_of_deathwing_corruptionAI : public ScriptedAI
     {
-        npc_spine_of_deathwing_corruptionAI(Creature* pCreature) : Scripted_NoMovementAI(pCreature)
+        npc_spine_of_deathwing_corruptionAI(Creature* pCreature) : ScriptedAI(pCreature)
         {
             me->ApplySpellImmune(0, IMMUNITY_EFFECT, SPELL_EFFECT_KNOCK_BACK, true);
             me->ApplySpellImmune(0, IMMUNITY_MECHANIC, MECHANIC_GRIP, true);
@@ -514,7 +515,7 @@ public:
             me->ApplySpellImmune(0, IMMUNITY_MECHANIC, MECHANIC_CHARM, true);
             me->ApplySpellImmune(0, IMMUNITY_MECHANIC, MECHANIC_DISORIENTED, true);
             me->ApplySpellImmune(0, IMMUNITY_STATE, SPELL_AURA_MOD_CONFUSE, true);
-
+			me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_DISABLE_MOVE);
             me->SetReactState(REACT_PASSIVE);
             damageCounter = 0;
             isGrip = false;
@@ -765,11 +766,12 @@ public:
         return new npc_spine_of_deathwing_spawnerAI(pCreature);
     }
 
-    struct npc_spine_of_deathwing_spawnerAI : public Scripted_NoMovementAI
+    struct npc_spine_of_deathwing_spawnerAI : public ScriptedAI
     {
-        npc_spine_of_deathwing_spawnerAI(Creature* pCreature) : Scripted_NoMovementAI(pCreature)
+        npc_spine_of_deathwing_spawnerAI(Creature* pCreature) : ScriptedAI(pCreature)
         {
             me->SetReactState(REACT_PASSIVE);
+			me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_DISABLE_MOVE);
         }
 
         void Reset()
@@ -891,9 +893,9 @@ public:
         return new npc_spine_of_deathwing_burning_tendonsAI(pCreature);
     }
 
-    struct npc_spine_of_deathwing_burning_tendonsAI : public Scripted_NoMovementAI
+    struct npc_spine_of_deathwing_burning_tendonsAI : public ScriptedAI
     {
-        npc_spine_of_deathwing_burning_tendonsAI(Creature* pCreature) : Scripted_NoMovementAI(pCreature)
+        npc_spine_of_deathwing_burning_tendonsAI(Creature* pCreature) : ScriptedAI(pCreature)
         {
             me->ApplySpellImmune(0, IMMUNITY_EFFECT, SPELL_EFFECT_KNOCK_BACK, true);
             me->ApplySpellImmune(0, IMMUNITY_MECHANIC, MECHANIC_GRIP, true);
@@ -907,7 +909,7 @@ public:
             me->ApplySpellImmune(0, IMMUNITY_MECHANIC, MECHANIC_CHARM, true);
             me->ApplySpellImmune(0, IMMUNITY_MECHANIC, MECHANIC_DISORIENTED, true);
             me->ApplySpellImmune(0, IMMUNITY_STATE, SPELL_AURA_MOD_CONFUSE, true);
-
+			me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_DISABLE_MOVE);
             me->SetReactState(REACT_PASSIVE);
             me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
             isOpened = false;
@@ -1269,7 +1271,7 @@ public:
             PlayersCheck(WorldObject const* obj) : _obj(obj) { }
             bool operator()(Player* u)
             {
-                if (!u->isAlive())
+                if (!u->IsAlive())
                     return false;
 
                 if (!_obj->IsWithinDistInMap(u, 200.0f))

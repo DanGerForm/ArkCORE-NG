@@ -50,6 +50,7 @@ set(scripts_STAT_SRCS
   Kalimdor/CavernsOfTime/DragonSoul/boss_ultraxion.cpp
   Kalimdor/CavernsOfTime/DragonSoul/boss_warmaster_blackhorn.cpp
   Kalimdor/CavernsOfTime/DragonSoul/boss_deathwing.cpp
+  Kalimdor/CavernsOfTime/DragonSoul/boss_spine_of_deathwing.cpp
   Kalimdor/CavernsOfTime/BattleForMountHyjal/boss_archimonde.cpp
   Kalimdor/CavernsOfTime/BattleForMountHyjal/hyjalAI.h
   Kalimdor/CavernsOfTime/BattleForMountHyjal/hyjal_trash.h
