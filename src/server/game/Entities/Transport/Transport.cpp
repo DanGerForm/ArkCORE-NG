@@ -36,7 +36,8 @@
 
 Transport::Transport() : GameObject(),
 _transportInfo(NULL), _isMoving(true), _pendingStop(false),
-_triggeredArrivalEvent(false), _triggeredDepartureEvent(false)
+_triggeredArrivalEvent(false), _triggeredDepartureEvent(false), _delayedAddModel(false), _delayedTeleport(false),
+_isDelayedTeleportInitated(false),  _isDelayedTeleportExecuted(false), _isNextTeleportInvolvedInTwoMaps(false)
 {
     m_updateFlag = UPDATEFLAG_TRANSPORT | UPDATEFLAG_LOWGUID | UPDATEFLAG_STATIONARY_POSITION | UPDATEFLAG_ROTATION;
 }
@@ -186,6 +187,25 @@ void Transport::Update(uint32 diff)
             if (TeleportTransport(_nextFrame->Node->mapid, _nextFrame->Node->x, _nextFrame->Node->y, _nextFrame->Node->z, _nextFrame->InitialOrientation))
                 return; // Update more in new map thread
     }
+    
+    // Add model to map after we are fully done with moving maps
+    if (_delayedAddModel)
+    {
+        _delayedAddModel = false;
+        if (m_model)
+            if (Map* map = GetMap())
+            {
+                GetMap()->InsertGameObjectModel(*m_model);
+
+                // find all player in map of the transport and clear the visible-state
+                Map::PlayerList const& players = GetMap()->GetPlayers();
+                
+                for (Map::PlayerList::const_iterator itr = players.begin(); itr != players.end(); ++itr)
+                    if (Player* player = itr->GetSource())
+                        if (player->IsInPhase(this->ToGameObject()))
+                            player->SetTransportVisibleState(GetGUID(), TRANS_STATE_NEW);
+            }
+    }
 
     // Set position
     _positionChangeTimer.Update(diff);
@@ -224,6 +244,14 @@ void Transport::Update(uint32 diff)
     sScriptMgr->OnTransportUpdate(this, diff);
 }
 
+void Transport::DelayedUpdate(uint32 /*diff*/)
+{
+    if (GetKeyFrames().size() <= 1)
+        return;
+
+    TeleportTransportDelayed();
+}
+
 void Transport::AddPassenger(WorldObject* passenger)
 {
     if (!IsInWorld())
@@ -253,6 +281,12 @@ void Transport::RemovePassenger(WorldObject* passenger)
     }
 }
 
+void Transport::RemoveNpcPassenger(uint64 passengerGuid)
+{
+    if (Creature* npc = sObjectAccessor->GetCreature(*this, passengerGuid))
+        RemovePassenger(npc);
+}
+
 Creature* Transport::CreateNPCPassenger(uint32 guid, CreatureData const* data)
 {
     Map* map = GetMap();
@@ -264,6 +298,9 @@ Creature* Transport::CreateNPCPassenger(uint32 guid, CreatureData const* data)
         return NULL;
     }
 
+    if (data->id == 43022)
+        printf("");
+
     float x = data->posX;
     float y = data->posY;
     float z = data->posZ;
@@ -272,8 +309,8 @@ Creature* Transport::CreateNPCPassenger(uint32 guid, CreatureData const* data)
     creature->SetTransport(this);
     creature->m_movementInfo.transport.guid = GetGUID();
     creature->m_movementInfo.transport.pos.Relocate(x, y, z, o);    // m_movementInfo.transport.pos.m_positionX  x=offset
-    CalculatePassengerPosition(x, y, z, &o);                        // This method transforms supplied transport offsets into global coordinates offset > worldpos
     creature->m_movementInfo.transport.seat = -1;
+    CalculatePassengerPosition(x, y, z, &o);                        // This method transforms supplied transport offsets into global coordinates offset > worldpos
     GetMap()->CreatureRelocation(creature, x, y, z, o, false);
     creature->Relocate(x, y, z, o);                                 // me->m_positionX  x=worldpos
 
@@ -291,13 +328,11 @@ Creature* Transport::CreateNPCPassenger(uint32 guid, CreatureData const* data)
         return NULL;
     }
 
-    std::set<uint16> phaseIds = MergePhases(data->phaseMask, data->phaseIds, GetXPhasesForGroup(data->phaseGroup));
-   
-    if (!phaseIds.empty())
-    {
-        for (uint16 ph : phaseIds)
-            SetInPhase(ph, false, true);
-    }
+    if (data->phaseId)
+        creature->SetInPhase(data->phaseId, false, true);
+    else if (data->phaseGroup)
+        for (auto phase : GetXPhasesForGroup(data->phaseGroup))
+            creature->SetInPhase(phase, false, true);
     else
         creature->CopyPhaseFrom(this);
 
@@ -343,6 +378,14 @@ GameObject* Transport::CreateGOPassenger(uint32 guid, GameObjectData const* data
         delete go;
         return NULL;
     }
+
+    if (data->phaseId)
+        go->SetInPhase(data->phaseId, false, true);
+    else if (data->phaseGroup)
+        for (auto phase : GetXPhasesForGroup(data->phaseGroup))
+            go->SetInPhase(phase, false, true);
+    else
+        go->CopyPhaseFrom(this);
 
     if (!map->AddToMap(go))
     {
@@ -512,6 +555,11 @@ void Transport::UpdatePosition(float x, float y, float z, float o)
 
 void Transport::LoadStaticPassengers()
 {
+    if (_isDelayedTeleportInitated && !_isDelayedTeleportExecuted)
+        return;
+    _isDelayedTeleportExecuted = false;
+    _isDelayedTeleportInitated = false;
+
     if (uint32 mapId = GetGOInfo()->moTransport.mapID)
     {
         CellObjectGuidsMap const& cells = sObjectMgr->GetMapObjectGuids(mapId, GetMap()->GetSpawnMode());
@@ -553,6 +601,9 @@ void Transport::MoveToNextWaypoint()
     // Clear events flagging
     _triggeredArrivalEvent = false;
     _triggeredDepartureEvent = false;
+
+    if (_currentFrame->Node->mapid != _nextFrame->Node->mapid)
+        _isNextTeleportInvolvedInTwoMaps = true;
 
     // Set frames
     _currentFrame = _nextFrame++;
@@ -597,49 +648,8 @@ bool Transport::TeleportTransport(uint32 newMapid, float x, float y, float z, fl
 
     if (oldMap->GetId() != newMapid)
     {
-        Map* newMap = sMapMgr->CreateBaseMap(newMapid);
-        UnloadStaticPassengers();
-        GetMap()->RemoveFromMap<Transport>(this, false);
-        SetMap(newMap);
-
-        for (std::set<WorldObject*>::iterator itr = _passengers.begin(); itr != _passengers.end();)
-        {
-            WorldObject* obj = (*itr++);
-
-            float destX, destY, destZ, destO;
-            obj->m_movementInfo.transport.pos.GetPosition(destX, destY, destZ, destO);
-            TransportBase::CalculatePassengerPosition(destX, destY, destZ, &destO, x, y, z, o);
-
-            switch (obj->GetTypeId())
-            {
-            case TYPEID_UNIT:
-                if (!IS_PLAYER_GUID(obj->ToUnit()->GetOwnerGUID()))  // pets should be teleported with player
-                    obj->ToCreature()->FarTeleportTo(newMap, destX, destY, destZ, destO);
-                break;
-            case TYPEID_GAMEOBJECT:
-            {
-                GameObject* go = obj->ToGameObject();
-                go->GetMap()->RemoveFromMap(go, false);
-                go->Relocate(destX, destY, destZ, destO);
-                go->SetMap(newMap);
-                newMap->AddToMap(go);
-                break;
-            }
-            case TYPEID_PLAYER:
-                if (!obj->ToPlayer()->TeleportTo(newMapid, destX, destY, destZ, destO, TELE_TO_NOT_LEAVE_TRANSPORT))
-                    _passengers.erase(obj);
-                break;
-            case TYPEID_DYNAMICOBJECT:
-                obj->AddObjectToRemoveList();
-                break;
-            default:
-                break;
-            }
-        }
-
-        Relocate(x, y, z, o);
-        UpdateModelPosition();
-        GetMap()->AddToMap<Transport>(this);
+        _delayedTeleport = true;
+        _isDelayedTeleportInitated = true;
         return true;
     }
     else
@@ -649,10 +659,14 @@ bool Transport::TeleportTransport(uint32 newMapid, float x, float y, float z, fl
         {
             if ((*itr)->GetTypeId() == TYPEID_PLAYER)
             {
+                // will be relocated in UpdatePosition of the vehicle
+                if (Unit* veh = (*itr)->ToUnit()->GetVehicleBase())
+                    if (veh->GetTransport() == this)
+                        continue;
+
                 float destX, destY, destZ, destO;
                 (*itr)->m_movementInfo.transport.pos.GetPosition(destX, destY, destZ, destO);
                 TransportBase::CalculatePassengerPosition(destX, destY, destZ, &destO, x, y, z, o);
-
                 (*itr)->ToUnit()->NearTeleportTo(destX, destY, destZ, destO);
             }
         }
@@ -660,6 +674,57 @@ bool Transport::TeleportTransport(uint32 newMapid, float x, float y, float z, fl
         UpdatePosition(x, y, z, o);
         return false;
     }
+}
+
+void Transport::TeleportTransportDelayed()
+{
+    if (!_delayedTeleport || !_isNextTeleportInvolvedInTwoMaps)
+        return;
+
+    UnloadStaticPassengers();
+
+    GetMap()->RemoveFromMap<Transport>(this, false);
+
+    Map* newMap = sMapMgr->CreateBaseMap(_nextFrame->Node->mapid);
+    SetMap(newMap);
+
+    float x = _nextFrame->Node->x,
+          y = _nextFrame->Node->y,
+          z = _nextFrame->Node->z,
+          o = _nextFrame->InitialOrientation;
+
+    std::vector<WorldObject*> _passengerRemove;
+    for (auto obj : _passengers)
+    {
+        float destX, destY, destZ, destO;
+        obj->m_movementInfo.transport.pos.GetPosition(destX, destY, destZ, destO);
+        TransportBase::CalculatePassengerPosition(destX, destY, destZ, &destO, x, y, z, o);
+
+        switch (obj->GetTypeId())
+        {
+        case TYPEID_PLAYER:
+            if (!obj->ToPlayer()->TeleportTo(_nextFrame->Node->mapid, destX, destY, destZ, destO, TELE_TO_NOT_LEAVE_TRANSPORT))
+                _passengerRemove.push_back(obj);
+            break;
+        case TYPEID_DYNAMICOBJECT:
+            obj->AddObjectToRemoveList();
+            break;
+        default:
+            _passengerRemove.push_back(obj);
+            break;
+        }
+    }
+    for (auto obj : _passengerRemove)
+        RemovePassenger(obj);
+    _passengerRemove.clear();
+    
+    Relocate(x, y, z, o);
+
+    GetMap()->AddToMap<Transport>(this);
+
+    _isDelayedTeleportExecuted = true;
+    _delayedTeleport = false;
+    _isNextTeleportInvolvedInTwoMaps = false;
 }
 
 void Transport::UpdatePassengerPositions(std::set<WorldObject*>& passengers)
@@ -696,8 +761,11 @@ void Transport::UpdatePassengerPositions(std::set<WorldObject*>& passengers)
         }
         case TYPEID_PLAYER:
             //relocate only passengers in world and skip any player that might be still logging in/teleporting
-            if (passenger->IsInWorld())
+            if (passenger->IsInWorld() && !passenger->ToPlayer()->IsBeingTeleported())
+            {
                 GetMap()->PlayerRelocation(passenger->ToPlayer(), x, y, z, o);
+                passenger->ToPlayer()->SetFallInformation(0, passenger->GetPositionZ()); // toCheck
+            }
             break;
         case TYPEID_GAMEOBJECT:
             GetMap()->GameObjectRelocation(passenger->ToGameObject(), x, y, z, o, false);

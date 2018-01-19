@@ -164,7 +164,8 @@ public:
         CellCoord cellCoord = Trinity::ComputeCellCoord(object->GetPositionX(), object->GetPositionY());
         Cell cell(cellCoord);
 
-        uint32 zoneId, areaId;
+        uint32 zoneId = object->GetZoneId();
+        uint32 areaId = object->GetAreaId();
         object->GetZoneAndAreaId(zoneId, areaId);
         uint32 mapId = object->GetMapId();
 
@@ -185,13 +186,18 @@ public:
         {
             position1 = transport->GetPosition();
             position2 = object->m_movementInfo.transport.pos;
+            position1 += position2;
+            uint32 path = transport->GetKeyFrames().front().Node->path;
             std::set<WorldObject*> pList = transport->GetPassengers();
             std::set<WorldObject*> cList = transport->GetStaticPassengers();
             uint32 mapid = transport->GetMapId();
+            uint32 entry = transport->GetEntry();
             const char* name = transport->GetName().c_str();
+            std::string sPhase = transport->PhaseIdToString();
             relMap = transport->GetMoTransportMapId();           
-            handler->PSendSysMessage("Transport: Name: %s, with %u passenger and %u crewmember.\n", name, pList.size(), (uint32)cList.size());
-            handler->PSendSysMessage("RelPos: X: %f, Y: %f, Z: %f, O: %f, Map: %u\n", position2.m_positionX, position2.m_positionY, position2.m_positionZ, position2.m_orientation, relMap);
+            handler->PSendSysMessage("Transport: %u, Name: %s, Map: %u, Path: %u \n", entry, name, relMap, path);
+            handler->PSendSysMessage("PhaseIds: %s, Player: %u, Crew: %u \n", sPhase.c_str(), pList.size(), cList.size());
+            handler->PSendSysMessage("RelPos: X: %f, Y: %f, Z: %f, O: %f\n", position2.m_positionX, position2.m_positionY, position2.m_positionZ, position2.m_orientation);
         }
 
         Map const* map = object->GetMap();

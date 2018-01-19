@@ -809,11 +809,12 @@ enum ArenaTeamInfoType
 
 class InstanceSave;
 
-enum RestType
+enum RestingFlag
 {
-    REST_TYPE_NO        = 0,
-    REST_TYPE_IN_TAVERN = 1,
-    REST_TYPE_IN_CITY   = 2
+    RESTING_FLAG_NONE              = 0,
+    RESTING_FLAG_IN_TAVERN         = 1,
+    RESTING_FLAG_IN_CITY           = 2,
+    RESTING_FLAG_IN_FACTION_AREA   = 4                      // used with AREA_FLAG_REST_ZONE_*
 };
 
 enum TeleportToOptions
@@ -823,6 +824,13 @@ enum TeleportToOptions
     TELE_TO_NOT_LEAVE_COMBAT    = 0x04,
     TELE_TO_NOT_UNSUMMON_PET    = 0x08,
     TELE_TO_SPELL               = 0x10
+};
+
+enum eTransportVisibleState
+{
+    TRANS_STATE_NEW = 0,
+    TRANS_STATE_VISIBLE = 1,
+    TRANS_STATE_NOT_VISIBLE = 2
 };
 
 /// Type of environmental damages
@@ -896,6 +904,7 @@ enum PlayerLoginQueryIndex
     PLAYER_LOGIN_QUERY_LOAD_VOID_STORAGE            = 33,
     PLAYER_LOGIN_QUERY_LOAD_CURRENCY                = 34,
     PLAYER_LOGIN_QUERY_LOAD_CUF_PROFILES            = 35,
+    PLAYER_LOGIN_QUERY_LOAD_QUESTGIVER_QUEST        = 36,
     MAX_PLAYER_LOGIN_QUERY
 };
 
@@ -922,6 +931,14 @@ struct InstancePlayerBind
        that aren't already permanently bound when they are inside when a boss is killed
        or when they enter an instance that the group leader is permanently bound to. */
     InstancePlayerBind() : save(NULL), perm(false) { }
+};
+
+struct QuestGiverQuest
+{
+    uint64 questgiver_guid;
+    uint32 quest_id;
+    time_t time_change;
+    bool   is_rewarded;
 };
 
 struct AccessRequirement
@@ -1258,6 +1275,7 @@ class Player : public Unit, public GridObject<Player>
         static bool BuildEnumData(PreparedQueryResult result, ByteBuffer* dataBuffer, ByteBuffer* bitBuffer);
 
         void SetInWater(bool apply);
+        bool IsInAreaTriggerRadius(const AreaTriggerEntry* trigger) const;
 
         bool IsInWater() const { return m_isInWater; }
         bool IsUnderWater() const;
@@ -1320,21 +1338,13 @@ class Player : public Unit, public GridObject<Player>
 
         void SetDeathState(DeathState s);                   // overwrite Unit::setDeathState
 
-        void InnEnter(time_t time, uint32 mapid, float x, float y, float z);
-
-        float GetRestBonus() const { return m_rest_bonus; }
+        float GetRestBonus() const { return m_resting_bonus; }
         void SetRestBonus(float rest_bonus_new);
 
-        RestType GetRestType() const { return rest_type; }
-        void SetRestType(RestType n_r_type) { rest_type = n_r_type; }
-
-        uint32 GetInnPosMapId() const { return inn_pos_mapid; }
-        float GetInnPosX() const { return inn_pos_x; }
-        float GetInnPosY() const { return inn_pos_y; }
-        float GetInnPosZ() const { return inn_pos_z; }
-
-        time_t GetTimeInnEnter() const { return time_inn_enter; }
-        void UpdateInnerTime (time_t time) { time_inn_enter = time; }
+        bool HasRestingFlag(RestingFlag restFlag) const { return (m_resting_FlagMask & restFlag) != 0; }
+        uint32 GetRestingFlag() const { return m_resting_FlagMask; }
+        void SetRestingFlag(RestingFlag restFlag, uint32 triggerId = 0);
+        void RemoveRestingFlag(RestingFlag restFlag);
 
         Pet* GetPet() const;
         Pet* SummonPet(uint32 entry, float x, float y, float z, float ang, PetType petType, uint32 despwtime);
@@ -1492,6 +1502,26 @@ class Player : public Unit, public GridObject<Player>
         TradeData* GetTradeData() const { return m_trade; }
         void TradeCancel(bool sendback);
 
+        // Visible state 
+        bool  IsTransportVisibleStateInserted(uint64 transportId) 
+        { 
+            return m_TransportVisibleState.find(transportId) != m_TransportVisibleState.end(); 
+        }
+        eTransportVisibleState GetTransportVisibleState(uint64 transportId)
+        { 
+            if (IsTransportVisibleStateInserted(transportId))
+                return (eTransportVisibleState)m_TransportVisibleState[transportId];
+            else
+                return TRANS_STATE_NEW;
+        }
+        void  SetTransportVisibleState(uint64 transportId, eTransportVisibleState state)
+        { 
+            if (IsTransportVisibleStateInserted(transportId))
+                m_TransportVisibleState[transportId] = state;
+            else
+                m_TransportVisibleState.insert(std::pair<uint64, uint8>(transportId, state));
+        }
+
         void UpdateEnchantTime(uint32 time);
         void UpdateSoulboundTradeItems();
         void AddTradeableItem(Item* item);
@@ -1540,8 +1570,9 @@ class Player : public Unit, public GridObject<Player>
         void SendPreparedQuest(uint64 guid);
         bool IsActiveQuest(uint32 quest_id) const;
         Quest const* GetNextQuest(uint64 guid, Quest const* quest);
+        Quest const * GetMoreCompletedQuest(Object* questgiver);
         bool CanSeeStartQuest(Quest const* quest);
-        bool CanTakeQuest(Quest const* quest, bool msg);
+        bool CanTakeQuest(Quest const* quest, bool msg, bool prevQuestAutoReward = false);
         bool CanAddQuest(Quest const* quest, bool msg);
         bool CanCompleteQuest(uint32 quest_id);
         bool CanCompleteRepeatableQuest(Quest const* quest);
@@ -1551,7 +1582,7 @@ class Player : public Unit, public GridObject<Player>
         void AddQuest(Quest const* quest, Object* questGiver);
         void CompleteQuest(uint32 quest_id);
         void IncompleteQuest(uint32 quest_id);
-        void RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, bool announce = true);
+        bool RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, bool announce = true);
         void FailQuest(uint32 quest_id);
         bool SatisfyQuestSkill(Quest const* qInfo, bool msg) const;
         bool SatisfyQuestLevel(Quest const* qInfo, bool msg);
@@ -1652,6 +1683,13 @@ class Player : public Unit, public GridObject<Player>
         }
 
         bool HasPvPForcingQuest() const;
+
+        uint64 GetQuestGiverGUID(uint32 quest_id);
+        QuestGiverQuest* GetQuestGiverQuest(uint32 quest_id);
+        void SetQuestGiverQuestState(uint32 quest_id, bool is_rewarded);
+        void SetQuestGiverQuestGUID(uint32 quest_id, Object* questgiver);
+        void AddQuestGiverQuest(uint32 quest_id, Object* questgiver);
+        void CleanUpQuestGiverQuest();
 
         /*********************************************************/
         /***                   LOAD SYSTEM                     ***/
@@ -2342,8 +2380,9 @@ class Player : public Unit, public GridObject<Player>
 
         bool isRested() const { return GetRestTime() >= 10*IN_MILLISECONDS; }
         uint32 GetXPRestBonus(uint32 xp);
-        uint32 GetRestTime() const { return m_restTime;}
-        void SetRestTime(uint32 v) { m_restTime = v;}
+        uint32 GetRestTime() const { return m_resting_Time;}
+        void SetRestTime(uint32 v) { m_resting_Time = v;}
+        uint32 GetInnTriggerId() const { return m_InnTriggerId; }
 
         /*********************************************************/
         /***              ENVIROMENTAL SYSTEM                  ***/
@@ -2682,6 +2721,12 @@ class Player : public Unit, public GridObject<Player>
         uint64 m_divider;
         uint32 m_ingametime;
 
+        typedef std::unordered_map<uint32 /*quest_id*/, QuestGiverQuest*> QuestGiverQuestMap;
+
+        // holds a list for all questgiver the player have started a quest. used for new AUTO_ACCEPT, AUTO_TAKE, AUTO_SUBMIT
+        QuestGiverQuestMap m_questGiverQuestMap;
+        bool m_questGiverQuestMapChanged;
+        
         /*********************************************************/
         /***                   LOAD SYSTEM                     ***/
         /*********************************************************/
@@ -2698,6 +2743,7 @@ class Player : public Unit, public GridObject<Player>
         void _LoadQuestStatus(PreparedQueryResult result);
         void _LoadQuestStatusRewarded(PreparedQueryResult result);
         void _LoadDailyQuestStatus(PreparedQueryResult result);
+        void _LoadQuestGiverQuest(PreparedQueryResult result);
         void _LoadWeeklyQuestStatus(PreparedQueryResult result);
         void _LoadMonthlyQuestStatus(PreparedQueryResult result);
         void _LoadSeasonalQuestStatus(PreparedQueryResult result);
@@ -2730,6 +2776,7 @@ class Player : public Unit, public GridObject<Player>
         void _SaveDailyQuestStatus(SQLTransaction& trans);
         void _SaveWeeklyQuestStatus(SQLTransaction& trans);
         void _SaveMonthlyQuestStatus(SQLTransaction& trans);
+        void _SaveQuestGiverQuest(SQLTransaction & trans);
         void _SaveSeasonalQuestStatus(SQLTransaction& trans);
         void _SaveSkills(SQLTransaction& trans);
         void _SaveSpells(SQLTransaction& trans);
@@ -2867,8 +2914,6 @@ class Player : public Unit, public GridObject<Player>
         uint32 m_deathTimer;
         time_t m_deathExpireTime;
 
-        uint32 m_restTime;
-
         uint32 m_WeaponProficiency;
         uint32 m_ArmorProficiency;
         bool m_canParry;
@@ -2877,13 +2922,13 @@ class Player : public Unit, public GridObject<Player>
         uint8 m_swingErrorMsg;
 
         ////////////////////Rest System/////////////////////
-        time_t time_inn_enter;
-        uint32 inn_pos_mapid;
-        float  inn_pos_x;
-        float  inn_pos_y;
-        float  inn_pos_z;
-        float m_rest_bonus;
-        RestType rest_type;
+
+        uint32   m_InnTriggerId;
+
+        time_t m_resting_Time;
+        float  m_resting_bonus;
+        uint32 m_resting_FlagMask;
+
         ////////////////////Rest System/////////////////////
 
         // Social
@@ -3023,6 +3068,9 @@ class Player : public Unit, public GridObject<Player>
 
         uint32 m_ratedBGLoose;
         uint32 m_ratedBGWins;
+
+        typedef std::unordered_map<uint64, uint8> m_TransportVisibleStateSet;
+        m_TransportVisibleStateSet m_TransportVisibleState;
 };
 
 void AddItemsSetItem(Player*player, Item* item);

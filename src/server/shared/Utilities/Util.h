@@ -309,6 +309,8 @@ bool Utf8FitTo(const std::string& str, std::wstring search);
 void utf8printf(FILE* out, const char *str, ...);
 void vutf8printf(FILE* out, const char *str, va_list* ap);
 
+uint8_t* GetBytes(std::string txt);
+
 bool IsIPAddress(char const* ipaddress);
 
 /// Checks if address belongs to the a network with specified submask
@@ -327,10 +329,6 @@ std::string GetUIntegerString(std::set<uint32> uint32List);
 std::set<uint16> GetUInt16List(std::string storedString);
 std::string GetUInt16String(std::set<uint16> uint16List);
 std::set<uint16> CopyUInt16List(std::set<uint16> original);
-
-uint64 ComputePhaseIdToMask(uint16 id);
-std::set<uint16> ComputePhaseMaskToIds(uint64 phaseMask);
-std::set<uint16> MergePhases(uint64 phaseMask, std::set<uint16> phaseIds, std::set<uint16> phaseGroupIds);
 
 char* GetCopyOfChars(const char * tmp);
 

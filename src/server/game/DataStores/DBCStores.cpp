@@ -52,6 +52,7 @@ struct WMOAreaTableTripple
 typedef std::map<WMOAreaTableTripple, WMOAreaTableEntry const*> WMOAreaInfoByTripple;
 
 DBCStorage <AreaTableEntry> sAreaTableStore(AreaTableEntryfmt);
+DBCStorage <AnimKitEntry> sAnimKitStore(AnimKitfmt);
 DBCStorage <AreaGroupEntry> sAreaGroupStore(AreaGroupEntryfmt);
 DBCStorage <AreaPOIEntry> sAreaPOIStore(AreaPOIEntryfmt);
 static AreaFlagByAreaID sAreaFlagByAreaID;
@@ -348,6 +349,7 @@ void LoadDBCStores(const std::string& dataPath)
     }
 
     LoadDBC(availableDbcLocales, bad_dbc_files, sAchievementStore,            dbcPath, "Achievement.dbc", &CustomAchievementfmt, &CustomAchievementIndex);//15595
+    LoadDBC(availableDbcLocales, bad_dbc_files, sAnimKitStore,                dbcPath, "AnimKit.dbc");//15595
     LoadDBC(availableDbcLocales, bad_dbc_files, sAchievementCriteriaStore,    dbcPath, "Achievement_Criteria.dbc");//15595
     LoadDBC(availableDbcLocales, bad_dbc_files, sAreaTriggerStore,            dbcPath, "AreaTrigger.dbc");//15595
     LoadDBC(availableDbcLocales, bad_dbc_files, sAreaGroupStore,              dbcPath, "AreaGroup.dbc");//15595
@@ -1322,3 +1324,13 @@ std::set<uint16> const& GetXPhasesForGroup(uint16 group)
     return sPhasesByGroup[group];
 }
 
+uint16 const ComputePhaseGroup(std::set<uint16> phaseIds)
+{
+    for (uint32 groupId = 0; groupId < sPhasesByGroup.size(); ++groupId)
+    {
+        std::set<uint16> xGroup = GetXPhasesForGroup(groupId);
+        if (xGroup == phaseIds)
+            return groupId;
+    }
+    return 0;
+}

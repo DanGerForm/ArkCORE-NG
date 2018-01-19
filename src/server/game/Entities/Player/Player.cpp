@@ -776,6 +776,7 @@ Player::Player(WorldSession* session) : Unit(true)
 
     m_DailyQuestChanged = false;
     m_lastDailyQuestTime = 0;
+    m_questGiverQuestMapChanged = false;
 
     for (uint8 i = 0; i < MAX_TIMERS; i++)
         m_MirrorTimer[i] = DISABLED_MIRROR_TIMER;
@@ -784,7 +785,6 @@ Player::Player(WorldSession* session) : Unit(true)
     m_MirrorTimerFlagsLast = UNDERWATER_NONE;
     m_isInWater = false;
     m_drunkTimer = 0;
-    m_restTime = 0;
     m_deathTimer = 0;
     m_deathExpireTime = 0;
 
@@ -814,13 +814,12 @@ Player::Player(WorldSession* session) : Unit(true)
     m_lastpetnumber = 0;
 
     ////////////////////Rest System/////////////////////
-    time_inn_enter = 0;
-    inn_pos_mapid = 0;
-    inn_pos_x = 0;
-    inn_pos_y = 0;
-    inn_pos_z = 0;
-    m_rest_bonus = 0;
-    rest_type = REST_TYPE_NO;
+
+    m_InnTriggerId = 0;
+
+    m_resting_bonus = 0;
+    m_resting_FlagMask = RESTING_FLAG_NONE;
+    m_resting_Time = 0;
     ////////////////////Rest System/////////////////////
 
     m_mailsLoaded = false;
@@ -1746,7 +1745,7 @@ void Player::Update(uint32 p_time)
 
                     // do attack
                     AttackerStateUpdate(victim, BASE_ATTACK);
-                    resetAttackTimer(BASE_ATTACK);
+                    ResetAttackTimer(BASE_ATTACK);
                 }
             }
 
@@ -1764,7 +1763,7 @@ void Player::Update(uint32 p_time)
 
                     // do attack
                     AttackerStateUpdate(victim, OFF_ATTACK);
-                    resetAttackTimer(OFF_ATTACK);
+                    ResetAttackTimer(OFF_ATTACK);
                 }
             }
 
@@ -1780,15 +1779,19 @@ void Player::Update(uint32 p_time)
 
     if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING))
     {
-        if (roll_chance_i(3) && GetTimeInnEnter() > 0)      // freeze update
+        if (roll_chance_i(3) && m_resting_Time > 0)      // freeze update
         {
-            time_t time_inn = time(NULL) - GetTimeInnEnter();
-            if (time_inn >= 10)                             // freeze update
+            time_t currTime = time(nullptr);
+            time_t timeDiff = currTime - m_resting_Time;
+            if (timeDiff >= 10)                             // freeze update
             {
+                m_resting_Time = currTime;
                 float bubble = 0.125f*sWorld->getRate(RATE_REST_INGAME);
+                float extraPerSec = ((float)GetUInt32Value(PLAYER_NEXT_LEVEL_XP) / 72000.0f) * bubble;
+
                 // speed collect rest bonus (section/in hour)
-                SetRestBonus(GetRestBonus() + time_inn*((float)GetUInt32Value(PLAYER_NEXT_LEVEL_XP) / 72000)*bubble);
-                UpdateInnerTime(time(NULL));
+                float currRestBonus = GetRestBonus();
+                SetRestBonus(currRestBonus + timeDiff * extraPerSec);
             }
         }
     }
@@ -1805,6 +1808,14 @@ void Player::Update(uint32 p_time)
     {
         if (p_time >= m_zoneUpdateTimer)
         {
+            // On zone update tick check if we are still in an inn if we are supposed to be in one
+            if (HasRestingFlag(RESTING_FLAG_IN_TAVERN))
+            {
+                AreaTriggerEntry const* atEntry = sAreaTriggerStore.LookupEntry(GetInnTriggerId());
+                if (!atEntry || !IsInAreaTriggerRadius(atEntry))
+                    RemoveRestingFlag(RESTING_FLAG_IN_TAVERN);
+            }
+
             uint32 newzone, newarea;
             GetZoneAndAreaId(newzone, newarea);
 
@@ -1984,15 +1995,6 @@ void Player::SetDeathState(DeathState s)
     if (IsAlive() && !cur)
         //clear aura case after resurrection by another way (spells will be applied before next death)
         SetUInt32Value(PLAYER_SELF_RES_SPELL, 0);
-}
-
-void Player::InnEnter(time_t time, uint32 mapid, float x, float y, float z)
-{
-    inn_pos_mapid = mapid;
-    inn_pos_x = x;
-    inn_pos_y = y;
-    inn_pos_z = z;
-    time_inn_enter = time;
 }
 
 bool Player::BuildEnumData(PreparedQueryResult result, ByteBuffer* dataBuffer, ByteBuffer* bitBuffer)
@@ -2297,6 +2299,7 @@ bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientati
 
         // this will be used instead of the current location in SaveToDB
         m_teleport_dest = WorldLocation(mapid, x, y, z, orientation);
+        m_teleport_options = options;
         SetFallInformation(0, z);
 
         // code for finish transfer called in WorldSession::HandleMovementOpcodes()
@@ -2304,13 +2307,7 @@ bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientati
         SetSemaphoreTeleportNear(true);
         // near teleport, triggering send CMSG_MOVE_TELEPORT_ACK from client at landing
         if (!GetSession()->PlayerLogout())
-        {
-            Position oldPos = GetPosition();
-            if (HasUnitMovementFlag(MOVEMENTFLAG_HOVER))
-                z += GetFloatValue(UNIT_FIELD_HOVERHEIGHT);
-            Relocate(x, y, z, orientation);
-            SendTeleportPacket(oldPos); // this automatically relocates to oldPos in order to broadcast the packet in the right place
-        }
+            SendTeleportPacket(m_teleport_dest); // this automatically relocates to oldPos in order to broadcast the packet in the right place
     }
     else
     {
@@ -3982,6 +3979,42 @@ void Player::SetInWater(bool apply)
     RemoveAurasWithInterruptFlags(apply ? AURA_INTERRUPT_FLAG_NOT_ABOVEWATER : AURA_INTERRUPT_FLAG_NOT_UNDERWATER);
 
     getHostileRefManager().updateThreatTables();
+}
+
+bool Player::IsInAreaTriggerRadius(const AreaTriggerEntry* trigger) const
+{
+    if (!trigger || GetMapId() != trigger->mapid)
+        return false;
+
+    if (trigger->radius > 0.f)
+    {
+        if (trigger->z < 0.f)
+            TC_LOG_DEBUG("misc", "Player::IsInAreaTriggerRadius: AreaTrigger.DBC->Position_Z (value: %f) are below 0. Changed to: %f.", trigger->z, abs(trigger->z));
+
+        // if we have radius check it.. sometimes are trigger.z with negative value, but it should be positiv..
+        if (trigger->z < 0)
+        {
+            Position pos = GetPosition();
+            pos.m_positionZ = abs(pos.m_positionZ);
+            float dist = pos.GetExactDist(trigger->x, trigger->y, abs(trigger->z));
+            if (dist > trigger->radius)
+                return false;
+        }
+        else
+        {
+            float dist = GetDistance(trigger->x, trigger->y, trigger->z);
+            if (dist > trigger->radius)
+                return false;
+        }
+    }
+    else
+    {
+        Position center(trigger->x, trigger->y, trigger->z, trigger->box_orientation);
+        if (!IsWithinBox(center, trigger->box_x / 2.f, trigger->box_y / 2.f, trigger->box_z / 2.f))
+            return false;
+    }
+
+    return true;
 }
 
 void Player::SetGameMaster(bool on)
@@ -9111,15 +9144,24 @@ void Player::UpdateArea(uint32 newArea)
 
     // previously this was in UpdateZone (but after UpdateArea) so nothing will break
     pvpInfo.IsInNoPvPArea = false;
-    if (area && area->IsSanctuary())    // in sanctuary
+    if (area)
     {
-        SetByteFlag(UNIT_FIELD_BYTES_2, 1, UNIT_BYTE2_FLAG_SANCTUARY);
-        pvpInfo.IsInNoPvPArea = true;
-        if (!duel)
-            CombatStopWithPets();
+        if (area->IsSanctuary())    // in sanctuary
+        {
+            SetByteFlag(UNIT_FIELD_BYTES_2, 1, UNIT_BYTE2_FLAG_SANCTUARY);
+            pvpInfo.IsInNoPvPArea = true;
+            if (!duel)
+                CombatStopWithPets();
+        }
+        else
+            RemoveByteFlag(UNIT_FIELD_BYTES_2, 1, UNIT_BYTE2_FLAG_SANCTUARY);
+
+        uint32 const areaRestFlag = (GetTeam() == ALLIANCE) ? AREA_FLAG_REST_ZONE_ALLIANCE : AREA_FLAG_REST_ZONE_HORDE;
+        if (area->flags & areaRestFlag)
+            SetRestingFlag(RESTING_FLAG_IN_FACTION_AREA);
+        else
+            RemoveRestingFlag(RESTING_FLAG_IN_FACTION_AREA);
     }
-    else
-        RemoveByteFlag(UNIT_FIELD_BYTES_2, 1, UNIT_BYTE2_FLAG_SANCTUARY);
 }
 
 void Player::UpdateZone(uint32 newZone, uint32 newArea)
@@ -9185,33 +9227,11 @@ void Player::UpdateZone(uint32 newZone, uint32 newArea)
     if (zone->flags & AREA_FLAG_CAPITAL)                     // Is in a capital city
     {
         if (!pvpInfo.IsHostile || zone->IsSanctuary())
-        {
-            SetFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING);
-            SetRestType(REST_TYPE_IN_CITY);
-            InnEnter(time(0), GetMapId(), 0, 0, 0);
-        }
+            SetRestingFlag(RESTING_FLAG_IN_CITY);
         pvpInfo.IsInNoPvPArea = true;
     }
     else
-    {
-        if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING))
-        {
-            if (GetRestType() == REST_TYPE_IN_TAVERN)        // Still inside a tavern or has recently left
-            {
-                // Remove rest state if we have recently left a tavern.
-                if (GetMapId() != GetInnPosMapId() || GetExactDist(GetInnPosX(), GetInnPosY(), GetInnPosZ()) > 1.0f)
-                {
-                    RemoveFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING);
-                    SetRestType(REST_TYPE_NO);
-                }
-            }
-            else                                             // Recently left a capital city
-            {
-                RemoveFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING);
-                SetRestType(REST_TYPE_NO);
-            }
-        }
-    }
+        RemoveRestingFlag(RESTING_FLAG_IN_CITY);
 
     UpdatePvPState();
 
@@ -16234,7 +16254,7 @@ void Player::SendPreparedQuest(uint64 guid)
                 if (quest->IsAutoAccept() && CanAddQuest(quest, true) && CanTakeQuest(quest, true))
                     AddQuestAndCheckCompletion(quest, object);
 
-                if ((quest->IsAutoComplete() && quest->IsRepeatable() && !quest->IsDailyOrWeekly()) || quest->HasFlag(QUEST_FLAGS_AUTOCOMPLETE))
+                if ((quest->IsAutoComplete() && quest->IsRepeatable() && !quest->IsDailyOrWeekly()) || quest->HasFlag(QUEST_FLAGS_AUTO_COMPLETE))
                     PlayerTalkClass->SendQuestGiverRequestItems(quest, guid, CanCompleteRepeatableQuest(quest), true);
                 else
                     PlayerTalkClass->SendQuestGiverQuestDetails(quest, guid, true);
@@ -16297,14 +16317,12 @@ bool Player::IsActiveQuest(uint32 quest_id) const
 Quest const* Player::GetNextQuest(uint64 guid, Quest const* quest)
 {
     QuestRelationBounds objectQR;
-    Creature* QuestGiver = ObjectAccessor::GetCreatureOrPetOrVehicle(*this, guid);
-
     uint32 nextQuestID = quest->GetNextQuestInChain();
 
     switch (GUID_HIPART(guid))
     {
     case HIGHGUID_PLAYER:
-        ASSERT(quest->HasFlag(QUEST_FLAGS_AUTOCOMPLETE));
+        ASSERT(quest->HasFlag(QUEST_FLAGS_AUTO_COMPLETE));
         return sObjectMgr->GetQuestTemplate(nextQuestID);
     case HIGHGUID_UNIT:
     case HIGHGUID_PET:
@@ -16342,6 +16360,21 @@ Quest const* Player::GetNextQuest(uint64 guid, Quest const* quest)
     return NULL;
 }
 
+Quest const* Player::GetMoreCompletedQuest(Object* questgiver)
+{
+    QuestRelationBounds objectQIR;
+    if (questgiver->isType(TYPEMASK_UNIT))
+        objectQIR = sObjectMgr->GetCreatureQuestInvolvedRelationBounds(questgiver->GetEntry());
+    else if (questgiver->isType(TYPEMASK_GAMEOBJECT))
+        objectQIR = sObjectMgr->GetGOQuestInvolvedRelationBounds(questgiver->GetEntry());
+    
+    for (QuestRelations::const_iterator itr = objectQIR.first; itr != objectQIR.second; ++itr)
+        if (Quest const* quest = sObjectMgr->GetQuestTemplate(itr->second))
+            if (GetQuestStatus(quest->GetQuestId()) == QUEST_STATUS_COMPLETE)
+                return quest;
+    return nullptr;
+}
+
 bool Player::CanSeeStartQuest(Quest const* quest)
 {
     if (!DisableMgr::IsDisabledFor(DISABLE_TYPE_QUEST, quest->GetQuestId(), this) && SatisfyQuestClass(quest, false) && SatisfyQuestRace(quest, false) && SatisfyQuestGender(quest, false) &&
@@ -16356,14 +16389,14 @@ bool Player::CanSeeStartQuest(Quest const* quest)
     return false;
 }
 
-bool Player::CanTakeQuest(Quest const* quest, bool msg)
+bool Player::CanTakeQuest(Quest const* quest, bool msg, bool prevQuestAutoReward)
 {
     return !DisableMgr::IsDisabledFor(DISABLE_TYPE_QUEST, quest->GetQuestId(), this)
         && SatisfyQuestStatus(quest, msg) && SatisfyQuestExclusiveGroup(quest, msg)
         && SatisfyQuestClass(quest, msg) && SatisfyQuestRace(quest, msg) && SatisfyQuestLevel(quest, msg) && SatisfyQuestGender(quest, msg)
         && SatisfyQuestSkill(quest, msg) && SatisfyQuestReputation(quest, msg)
-        && SatisfyQuestPreviousQuest(quest, msg) && SatisfyQuestTimed(quest, msg)
-        && SatisfyQuestNextChain(quest, msg) && SatisfyQuestPrevChain(quest, msg)
+        && (prevQuestAutoReward || SatisfyQuestPreviousQuest(quest, msg)) && SatisfyQuestTimed(quest, msg)
+        && (prevQuestAutoReward || (SatisfyQuestNextChain(quest, msg) && SatisfyQuestPrevChain(quest, msg)))
         && SatisfyQuestDay(quest, msg) && SatisfyQuestWeek(quest, msg)
         && SatisfyQuestMonth(quest, msg) && SatisfyQuestSeasonal(quest, msg)
         && SatisfyQuestConditions(quest, msg);
@@ -16405,7 +16438,7 @@ bool Player::CanCompleteQuest(uint32 quest_id)
             return false;                                   // not allow re-complete quest
 
         // auto complete quest
-        if ((qInfo->IsAutoComplete() || qInfo->GetFlags() & QUEST_FLAGS_AUTOCOMPLETE) && CanTakeQuest(qInfo, false))
+        if ((qInfo->IsAutoComplete() || qInfo->GetFlags() & QUEST_FLAGS_AUTO_COMPLETE) && CanTakeQuest(qInfo, false))
             return true;
 
         QuestStatusMap::iterator itr = m_QuestStatus.find(quest_id);
@@ -16485,7 +16518,7 @@ bool Player::CanCompleteRepeatableQuest(Quest const* quest)
 bool Player::CanRewardQuest(Quest const* quest, bool msg)
 {
     // not auto complete quest and not completed quest (only cheating case, then ignore without message)
-    if (!quest->IsDFQuest() && !quest->IsAutoComplete() && !(quest->GetFlags() & QUEST_FLAGS_AUTOCOMPLETE) && GetQuestStatus(quest->GetQuestId()) != QUEST_STATUS_COMPLETE)
+    if (!quest->IsDFQuest() && !quest->IsAutoComplete() && GetQuestStatus(quest->GetQuestId()) != QUEST_STATUS_COMPLETE)
         return false;
 
     // daily quest can't be rewarded (25 daily quest already completed)
@@ -16529,46 +16562,23 @@ void Player::AddQuestAndCheckCompletion(Quest const* quest, Object* questGiver)
     if (CanCompleteQuest(quest->GetQuestId()))
         CompleteQuest(quest->GetQuestId());
 
-    if (!questGiver)
-        return;
-
-    switch (questGiver->GetTypeId())
-    {
-    case TYPEID_UNIT:
-        sScriptMgr->OnQuestAccept(this, questGiver->ToCreature(), quest);
-        questGiver->ToCreature()->AI()->sQuestAccept(this, quest);
-        break;
-    case TYPEID_ITEM:
-    case TYPEID_CONTAINER:
-    {
-        Item* item = (Item*)questGiver;
-        sScriptMgr->OnQuestAccept(this, item, quest);
-
-        // destroy not required for quest finish quest starting item
-        bool destroyItem = true;
-        for (int i = 0; i < QUEST_ITEM_OBJECTIVES_COUNT; ++i)
+    if (questGiver)
+        if (Item* item = questGiver->ToItem())
         {
-            if (quest->RequiredItemId[i] == item->GetEntry() && item->GetTemplate()->MaxCount > 0)
+            // destroy not required for quest finish quest starting item
+            bool destroyItem = true;
+            for (int i = 0; i < QUEST_ITEM_OBJECTIVES_COUNT; ++i)
             {
-                destroyItem = false;
-                break;
+                if (quest->RequiredItemId[i] == item->GetEntry() && item->GetTemplate()->MaxCount > 0)
+                {
+                    destroyItem = false;
+                    break;
+                }
             }
+
+            if (destroyItem)
+                DestroyItem(item->GetBagSlot(), item->GetSlot(), true);
         }
-
-        if (destroyItem)
-            DestroyItem(item->GetBagSlot(), item->GetSlot(), true);
-
-        break;
-    }
-    case TYPEID_GAMEOBJECT:
-
-        sScriptMgr->OnQuestAccept(this, questGiver->ToGameObject(), quest);
-        questGiver->ToGameObject()->AI()->QuestAccept(this, quest);
-
-        break;
-    default:
-        break;
-    }
 }
 
 bool Player::CanRewardQuest(Quest const* quest, uint32 reward, bool msg)
@@ -16680,27 +16690,52 @@ void Player::AddQuest(Quest const* quest, Object* questGiver)
 
     StartTimedAchievement(ACHIEVEMENT_TIMED_TYPE_QUEST, quest_id);
 
+    AddQuestGiverQuest(quest_id, questGiver);
+    sScriptMgr->OnQuestAccept(this, questGiver, quest);
+    sScriptMgr->OnQuestStatusChange(this, quest_id, QUEST_STATUS_INCOMPLETE);
     SendQuestUpdate(quest_id);
 }
 
 void Player::CompleteQuest(uint32 quest_id)
 {
     if (quest_id)
-    {
-        SetQuestStatus(quest_id, QUEST_STATUS_COMPLETE);
-
-        uint16 log_slot = FindQuestSlot(quest_id);
-        if (log_slot < MAX_QUEST_LOG_SIZE)
-            SetQuestSlotState(log_slot, QUEST_STATE_COMPLETE);
-
         if (Quest const* qInfo = sObjectMgr->GetQuestTemplate(quest_id))
         {
-            if (qInfo->HasFlag(QUEST_FLAGS_TRACKING))
-                RewardQuest(qInfo, 0, this, false);
+            SetQuestStatus(quest_id, QUEST_STATUS_COMPLETE);
+
+            uint16 log_slot = FindQuestSlot(quest_id);
+            if (log_slot < MAX_QUEST_LOG_SIZE)
+                SetQuestSlotState(log_slot, QUEST_STATE_COMPLETE);
+
+            uint64 guid = GetQuestGiverGUID(quest_id);
+            Object* questGiver = ObjectAccessor::GetObjectByTypeMask(*this, guid, TYPEMASK_UNIT | TYPEMASK_GAMEOBJECT | TYPEMASK_ITEM);
+            sScriptMgr->OnQuestObjectiveComplete(this, questGiver, qInfo);
+
+            if (qInfo->HasFlag(QUEST_FLAGS_AUTO_REWARDED))
+            {
+                bool result = RewardQuest(qInfo, 0, questGiver, false);
+                
+                if (questGiver && !result)
+                {
+                    if (Quest const* compQuest = GetMoreCompletedQuest(questGiver))
+                        printf("found Player::GetMoreCompletedQuest.. \n");
+
+                    if (Quest const* nextQuest = GetNextQuest(guid, qInfo))
+                    {
+                        if (CanAddQuest(nextQuest, true) && CanTakeQuest(nextQuest, true, true) && (nextQuest->HasFlag(QUEST_FLAGS_AUTO_SUBMIT) || nextQuest->HasFlag(QUEST_FLAGS_AUTO_TAKE)))
+                        {
+                            if (nextQuest->IsAutoAccept())
+                            {
+                                AddQuestAndCheckCompletion(nextQuest, this);
+                            }
+                            PlayerTalkClass->SendQuestGiverQuestDetails(nextQuest, GetGUID(), true);
+                        }
+                    }
+                }
+            }
             else
                 SendQuestComplete(qInfo);
         }
-    }
 }
 
 void Player::IncompleteQuest(uint32 quest_id)
@@ -16715,7 +16750,7 @@ void Player::IncompleteQuest(uint32 quest_id)
     }
 }
 
-void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, bool announce)
+bool Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, bool announce)
 {
     //this THING should be here to protect code from quest, which cast on player far teleport as a reward
     //should work fine, cause far teleport will be executed in Player::Update()
@@ -16867,6 +16902,10 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
     m_RewardedQuests.insert(quest_id);
     m_RewardedQuestsSave[quest_id] = true;
 
+    if (!GetQuestGiverGUID(quest_id))
+        AddQuestGiverQuest(quest_id, questGiver);
+    SetQuestGiverQuestState(quest_id, true);
+
     // StoreNewItem, mail reward, etc. save data directly to the database
     // to prevent exploitable data desynchronisation we save the quest status to the database too
     // (to prevent rewarding this quest another time while rewards were already given out)
@@ -16876,14 +16915,16 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
     if (announce)
         SendQuestReward(quest, XP);
 
+    // it seem that the quest flag has 2 functions.. "auto take" and "reward cast from player"
+    bool _PlayerCastRewardSpellOnComplete = bool(quest->GetFlags() & QUEST_FLAGS_AUTO_TAKE);
     // cast spells after mark quest complete (some spells have quest completed state requirements in spell_area data)
     if (quest->GetRewSpellCast() > 0)
     {
         SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(quest->GetRewSpellCast());
-        if (questGiver->isType(TYPEMASK_UNIT) && !spellInfo->HasEffect(SPELL_EFFECT_LEARN_SPELL) && !spellInfo->HasEffect(SPELL_EFFECT_CREATE_ITEM))
+        if (questGiver->isType(TYPEMASK_UNIT) && !_PlayerCastRewardSpellOnComplete && !spellInfo->HasEffect(SPELL_EFFECT_LEARN_SPELL) && !spellInfo->HasEffect(SPELL_EFFECT_CREATE_ITEM))
         {
-            if (Creature* creature = GetMap()->GetCreature(questGiver->GetGUID()))
-                creature->CastSpell(this, quest->GetRewSpellCast(), true);
+            if (Unit* unit = questGiver->ToUnit())
+                unit->CastSpell(this, quest->GetRewSpellCast(), true);
         }
         else
             CastSpell(this, quest->GetRewSpellCast(), true);
@@ -16891,10 +16932,10 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
     else if (quest->GetRewSpell() > 0)
     {
         SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(quest->GetRewSpell());
-        if (questGiver->isType(TYPEMASK_UNIT) && !spellInfo->HasEffect(SPELL_EFFECT_LEARN_SPELL) && !spellInfo->HasEffect(SPELL_EFFECT_CREATE_ITEM))
+        if (questGiver->isType(TYPEMASK_UNIT) && !_PlayerCastRewardSpellOnComplete && !spellInfo->HasEffect(SPELL_EFFECT_LEARN_SPELL) && !spellInfo->HasEffect(SPELL_EFFECT_CREATE_ITEM))
         {
-            if (Creature* creature = GetMap()->GetCreature(questGiver->GetGUID()))
-                creature->CastSpell(this, quest->GetRewSpell(), true);
+            if (Unit* unit = questGiver->ToUnit())
+                unit->CastSpell(this, quest->GetRewSpell(), true);
         }
         else
             CastSpell(this, quest->GetRewSpell(), true);
@@ -16911,10 +16952,13 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
         UpdatePvPState();
     }
 
-    SendQuestUpdate(quest_id);
-
     //lets remove flag for delayed teleports
     SetCanDelayTeleport(false);
+
+    if (Creature* creatureQGiver = questGiver ? questGiver->ToCreature() : nullptr)
+        creatureQGiver->GetAI()->sQuestReward(this, quest, reward);
+    sScriptMgr->OnQuestStatusChange(this, quest_id, QUEST_STATUS_REWARDED);
+    return sScriptMgr->OnQuestReward(this, questGiver, quest, announce);
 }
 
 void Player::FailQuest(uint32 questId)
@@ -17541,8 +17585,9 @@ void Player::SetQuestStatus(uint32 questId, QuestStatus status, bool update /*= 
 
     if (update)
         SendQuestUpdate(questId);
-}
 
+    sScriptMgr->OnQuestStatusChange(this, questId, status);
+}
 
 void Player::RemoveActiveQuest(uint32 questId, bool update /*= true*/)
 
@@ -17556,6 +17601,8 @@ void Player::RemoveActiveQuest(uint32 questId, bool update /*= true*/)
 
     if (update)
         SendQuestUpdate(questId);
+
+    sScriptMgr->OnQuestRemove(this, questId);
 }
 
 void Player::RemoveRewardedQuest(uint32 questId, bool update /*= true*/)
@@ -17680,28 +17727,26 @@ QuestGiverStatus Player::GetQuestDialogStatus(Object* questgiver)
 void Player::SendQuestUpdate(uint32 questId)
 {
     uint32 zone = 0, area = 0;
+    GetZoneAndAreaId(zone, area);
 
-    SpellAreaForQuestMapBounds saBounds = sSpellMgr->GetSpellAreaForQuestMapBounds(questId /*false*/);
-    if (saBounds.first != saBounds.second)
-    {
-        GetZoneAndAreaId(zone, area);
+    SpellAreaForQuestAreaMapBounds zoneBounds = sSpellMgr->GetSpellAreaForQuestAreaMapBounds(zone, questId);
+    SpellAreaForQuestAreaMapBounds areaBounds = sSpellMgr->GetSpellAreaForQuestAreaMapBounds(area, questId);
 
-        for (SpellAreaForAreaMap::const_iterator itr = saBounds.first; itr != saBounds.second; ++itr)
-            if (itr->second->autocast && itr->second->IsFitToRequirements(this, zone, area))
-                if (!HasAura(itr->second->spellId))
-                    CastSpell(this, itr->second->spellId, true);
-    }
-
-    saBounds = sSpellMgr->GetSpellAreaForQuestEndMapBounds(questId);
-    if (saBounds.first != saBounds.second)
-    {
-        if (!zone || !area)
-            GetZoneAndAreaId(zone, area);
-
-        for (SpellAreaForAreaMap::const_iterator itr = saBounds.first; itr != saBounds.second; ++itr)
+    if (zoneBounds.first != zoneBounds.second)
+        for (SpellAreaForQuestAreaMap::const_iterator itr = zoneBounds.first; itr != zoneBounds.second; ++itr)
             if (!itr->second->IsFitToRequirements(this, zone, area))
                 RemoveAurasDueToSpell(itr->second->spellId);
-    }
+            else if (itr->second->autocast)
+                if (!HasAura(itr->second->spellId))
+                    CastSpell(this, itr->second->spellId, true);
+
+    if (areaBounds.first != areaBounds.second)
+        for (SpellAreaForQuestAreaMap::const_iterator itr = areaBounds.first; itr != areaBounds.second; ++itr)
+            if (!itr->second->IsFitToRequirements(this, zone, area))
+                RemoveAurasDueToSpell(itr->second->spellId);
+            else if (itr->second->autocast)
+                if (!HasAura(itr->second->spellId))
+                    CastSpell(this, itr->second->spellId, true);
 
     UpdateForQuestWorldObjects();
     SendUpdatePhasing();
@@ -18485,6 +18530,96 @@ bool Player::HasPvPForcingQuest() const
     return false;
 }
 
+uint64 Player::GetQuestGiverGUID(uint32 quest_id)
+{
+    QuestGiverQuestMap::iterator it = m_questGiverQuestMap.find(quest_id);
+    if (it == m_questGiverQuestMap.end())
+        return 0;
+    QuestGiverQuest* q = (it->second);
+    return q->questgiver_guid;
+}
+
+QuestGiverQuest* Player::GetQuestGiverQuest(uint32 quest_id)
+{
+    QuestGiverQuestMap::iterator it = m_questGiverQuestMap.find(quest_id);
+    if (it == m_questGiverQuestMap.end())
+        return nullptr;
+    return (it->second);
+}
+
+void Player::SetQuestGiverQuestState(uint32 quest_id, bool is_rewarded)
+{
+    if (QuestGiverQuest* quest = GetQuestGiverQuest(quest_id))
+    {
+        quest->is_rewarded = (is_rewarded) ? 1 : 0;
+        quest->time_change = time(NULL);
+        m_questGiverQuestMapChanged = true;
+        SaveToDB();
+    }
+}
+
+void Player::SetQuestGiverQuestGUID(uint32 quest_id, Object* questgiver)
+{
+    if (QuestGiverQuest* quest = GetQuestGiverQuest(quest_id))
+    {
+        if (quest->questgiver_guid == 0)
+        {
+            quest->questgiver_guid = questgiver->GetGUID();
+            m_questGiverQuestMapChanged = true;
+            SaveToDB();
+        }
+    }
+}
+
+void Player::AddQuestGiverQuest(uint32 quest_id, Object* questgiver)
+{
+    if (!quest_id)
+        return;
+
+    QuestGiverQuest* q = new QuestGiverQuest;
+    if (questgiver)
+        q->questgiver_guid = questgiver->GetGUID();
+    else
+        q->questgiver_guid = 0;
+    q->quest_id = quest_id;
+    q->time_change = time(NULL);
+    q->is_rewarded = false;
+    m_questGiverQuestMap[q->quest_id] = q;
+    m_questGiverQuestMapChanged = true;
+    CleanUpQuestGiverQuest();
+    SaveToDB();
+}
+
+void Player::CleanUpQuestGiverQuest()
+{
+    if (m_questGiverQuestMap.empty())
+        return;
+
+    // find time of newest accept quest
+    time_t newest = 0;
+    for (auto qm : m_questGiverQuestMap)
+    {
+        QuestGiverQuest* q = qm.second;
+        if (!q->is_rewarded && q->time_change > newest)
+            newest = q->time_change;
+    }
+
+    // build list of elements for (older && rewarded)
+    std::list<uint32> qList;
+    for (auto qm : m_questGiverQuestMap)
+    {
+        QuestGiverQuest* q = qm.second;
+        if (q->is_rewarded && q->time_change < newest)
+            qList.push_back(qm.first);
+    }
+
+    // delete older elements
+    for (auto id : qList)
+        m_questGiverQuestMap.erase(id);
+
+    m_questGiverQuestMapChanged = true;
+}
+
 /*********************************************************/
 /***                   LOAD SYSTEM                     ***/
 /*********************************************************/
@@ -19155,7 +19290,7 @@ bool Player::LoadFromDB(uint32 guid, SQLQueryHolder *holder)
     InitRunes();
 
     // rest bonus can only be calculated after InitStatsForLevel()
-    m_rest_bonus = fields[21].GetFloat();
+    m_resting_bonus = fields[21].GetFloat();
 
     if (time_diff > 0)
     {
@@ -19210,7 +19345,6 @@ bool Player::LoadFromDB(uint32 guid, SQLQueryHolder *holder)
     // add ghost flag (must be after aura load: PLAYER_FLAGS_GHOST set in aura)
     if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_GHOST))
         m_deathState = DEAD;
-
     // after spell load, learn rewarded spell if need also
     _LoadQuestStatus(holder->GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS));
     _LoadQuestStatusRewarded(holder->GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS_REW));
@@ -19218,6 +19352,7 @@ bool Player::LoadFromDB(uint32 guid, SQLQueryHolder *holder)
     _LoadWeeklyQuestStatus(holder->GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_WEEKLY_QUEST_STATUS));
     _LoadSeasonalQuestStatus(holder->GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_SEASONAL_QUEST_STATUS));
     _LoadMonthlyQuestStatus(holder->GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_MONTHLY_QUEST_STATUS));
+    _LoadQuestGiverQuest(holder->GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_QUESTGIVER_QUEST));
     _LoadRandomBGStatus(holder->GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_RANDOM_BG));
 
     // after spell and quest load
@@ -19993,13 +20128,13 @@ void Player::_LoadMail()
             m->subject = fields[4].GetString();
             m->body = fields[5].GetString();
             bool has_items = fields[6].GetBool();
-            m->expire_time = time_t(fields[7].GetUInt32());
-            m->deliver_time = time_t(fields[8].GetUInt32());
+            m->expire_time = time_t(fields[7].GetUInt64());
+            m->deliver_time = time_t(fields[8].GetUInt64());
             m->money = fields[9].GetUInt64();
             m->COD = fields[10].GetUInt64();
             m->checked = fields[11].GetUInt8();
-            m->stationery = fields[12].GetUInt8();
-            m->mailTemplateId = fields[13].GetInt16();
+            m->stationery = fields[12].GetInt8();
+            m->mailTemplateId = fields[13].GetUInt16();
 
             if (m->mailTemplateId && !sMailTemplateStore.LookupEntry(m->mailTemplateId))
             {
@@ -20269,6 +20404,31 @@ void Player::_LoadMonthlyQuestStatus(PreparedQueryResult result)
     }
 
     m_MonthlyQuestChanged = false;
+}
+
+void Player::_LoadQuestGiverQuest(PreparedQueryResult result)
+{
+    m_questGiverQuestMap.clear();
+
+    if (result)
+    {
+        do
+        {
+            Field* fields = result->Fetch();
+
+            QuestGiverQuest* q = new QuestGiverQuest;
+
+            q->questgiver_guid = fields[0].GetUInt64();
+            q->quest_id = fields[1].GetUInt32();
+            q->time_change = time_t(fields[2].GetUInt32());
+            q->is_rewarded = fields[3].GetInt8();
+
+            m_questGiverQuestMap[q->quest_id] = q;
+
+            TC_LOG_DEBUG("entities.player.loading", "Load questgiver_quest for Player: %u, QuestGiver: %u, Quest: %u", GetGUIDLow(), q->questgiver_guid, q->quest_id);
+            
+        } while (result->NextRow());
+    }
 }
 
 void Player::_LoadSpells(PreparedQueryResult result)
@@ -20855,7 +21015,7 @@ void Player::SaveToDB(bool create /*=false*/)
         stmt->setUInt8(index++, m_cinematic);
         stmt->setUInt32(index++, m_Played_time[PLAYED_TIME_TOTAL]);
         stmt->setUInt32(index++, m_Played_time[PLAYED_TIME_LEVEL]);
-        stmt->setFloat(index++, finiteAlways(m_rest_bonus));
+        stmt->setFloat(index++, finiteAlways(m_resting_bonus));
         stmt->setUInt32(index++, uint32(time(NULL)));
         stmt->setUInt8(index++, (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING) ? 1 : 0));
         //save, far from tavern/city
@@ -20988,7 +21148,7 @@ void Player::SaveToDB(bool create /*=false*/)
         stmt->setUInt8(index++, m_cinematic);
         stmt->setUInt32(index++, m_Played_time[PLAYED_TIME_TOTAL]);
         stmt->setUInt32(index++, m_Played_time[PLAYED_TIME_LEVEL]);
-        stmt->setFloat(index++, finiteAlways(m_rest_bonus));
+        stmt->setFloat(index++, finiteAlways(m_resting_bonus));
         stmt->setUInt32(index++, uint32(time(NULL)));
         stmt->setUInt8(index++, (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING) ? 1 : 0));
         //save, far from tavern/city
@@ -21093,6 +21253,7 @@ void Player::SaveToDB(bool create /*=false*/)
     _SaveWeeklyQuestStatus(trans);
     _SaveSeasonalQuestStatus(trans);
     _SaveMonthlyQuestStatus(trans);
+    _SaveQuestGiverQuest(trans);
     _SaveTalents(trans);
     _SaveSpells(trans);
     _SaveSpellCooldowns(trans);
@@ -21689,6 +21850,31 @@ void Player::_SaveMonthlyQuestStatus(SQLTransaction& trans)
     }
 
     m_MonthlyQuestChanged = false;
+}
+
+void Player::_SaveQuestGiverQuest(SQLTransaction& trans)
+{
+    if (!m_questGiverQuestMapChanged)
+        return;
+
+    PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_QUESTGIVER_QUEST);
+    stmt->setUInt32(0, GetGUIDLow());
+    trans->Append(stmt);
+
+    for (QuestGiverQuestMap::const_iterator iter = m_questGiverQuestMap.begin(); iter != m_questGiverQuestMap.end(); ++iter)
+    {
+        QuestGiverQuest* q = (iter)->second;
+
+        stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHARACTER_QUESTGIVER_QUEST);
+        stmt->setUInt32(0, GetGUIDLow());
+        stmt->setUInt64(1, q->questgiver_guid);
+        stmt->setUInt32(2, q->quest_id);
+        stmt->setUInt32(3, q->time_change);
+        stmt->setInt8(4, q->is_rewarded);
+        trans->Append(stmt);
+    }
+
+    m_questGiverQuestMapChanged = false;
 }
 
 void Player::_SaveSkills(SQLTransaction& trans)
@@ -22940,20 +23126,23 @@ void Player::SetRestBonus(float rest_bonus_new)
     float rest_bonus_max = (float)GetUInt32Value(PLAYER_NEXT_LEVEL_XP)*1.5f / 2;
 
     if (rest_bonus_new > rest_bonus_max)
-        m_rest_bonus = rest_bonus_max;
+        m_resting_bonus = rest_bonus_max;
     else
-        m_rest_bonus = rest_bonus_new;
+        m_resting_bonus = rest_bonus_new;
 
     // update data for client
     if (GetSession()->IsARecruiter() || (GetSession()->GetRecruiterId() != 0))
         SetByteValue(PLAYER_BYTES_2, 3, REST_STATE_RAF_LINKED);
-    else if (m_rest_bonus > 10)
-        SetByteValue(PLAYER_BYTES_2, 3, REST_STATE_RESTED);              // Set Reststate = Rested
-    else if (m_rest_bonus <= 1)
-        SetByteValue(PLAYER_BYTES_2, 3, REST_STATE_NOT_RAF_LINKED);              // Set Reststate = Normal
+    else
+    {
+        if (m_resting_bonus > 10)
+            SetByteValue(PLAYER_BYTES_2, 3, REST_STATE_RESTED);              // Set Reststate = Rested
+        else if (m_resting_bonus <= 1)
+            SetByteValue(PLAYER_BYTES_2, 3, REST_STATE_NOT_RAF_LINKED);              // Set Reststate = Normal
+    }
 
     //RestTickUpdate
-    SetUInt32Value(PLAYER_REST_STATE_EXPERIENCE, uint32(m_rest_bonus));
+    SetUInt32Value(PLAYER_REST_STATE_EXPERIENCE, uint32(m_resting_bonus));
 }
 
 bool Player::ActivateTaxiPathTo(std::vector<uint32> const& nodes, Creature* npc /*= NULL*/, uint32 spellid /*= 0*/)
@@ -25586,7 +25775,7 @@ void Player::UpdateForQuestWorldObjects()
                 ConditionList conds = sConditionMgr->GetConditionsForSpellClickEvent(obj->GetEntry(), _itr->second.spellId);
                 bool buildUpdateBlock = false;
                 for (ConditionList::const_iterator jtr = conds.begin(); jtr != conds.end() && !buildUpdateBlock; ++jtr)
-                    if ((*jtr)->ConditionType == CONDITION_QUESTREWARDED || (*jtr)->ConditionType == CONDITION_QUESTTAKEN)
+                    if ((*jtr)->ConditionType == CONDITION_QUESTREWARDED || (*jtr)->ConditionType == CONDITION_QUESTTAKEN || (*jtr)->ConditionType == CONDITION_QUEST_COMPLETE)
                         buildUpdateBlock = true;
 
                 if (buildUpdateBlock)
@@ -29391,7 +29580,7 @@ void Player::ReadMovementInfo(WorldPacket& data, MovementInfo* mi, Movement::Ext
     MovementStatusElements const* sequence = GetMovementStatusElementsSequence(data.GetOpcode());
     if (!sequence)
     {
-        TC_LOG_ERROR("network", "Player::ReadMovementInfo: No movement sequence found for opcode %s", GetOpcodeNameForLogging(data.GetOpcode()).c_str());
+        TC_LOG_DEBUG("network", "Player::ReadMovementInfo: No movement sequence found for opcode %s", GetOpcodeNameForLogging(data.GetOpcode()).c_str());
         return;
     }
 
@@ -29689,7 +29878,37 @@ void Player::SendUpdatePhasing()
 {
     if (!IsInWorld())
         return;
-    
+
+    RebuildTerrainSwaps();
+
     UpdatePhaseForQuestAreaOrZoneChange();
+}
+
+void Player::SetRestingFlag(RestingFlag restFlag, uint32 triggerId /*= 0*/)
+{
+    // set resting flag we are in the inn
+    uint32 oldRestMask = m_resting_FlagMask;
+    m_resting_FlagMask |= restFlag;
+
+    if (!oldRestMask && m_resting_FlagMask) // only set flag/time on the first rest state
+    {
+        SetFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING);
+        m_resting_Time = time(nullptr);
+    }
+
+    if (triggerId)
+        m_InnTriggerId = triggerId;
+}
+
+void Player::RemoveRestingFlag(RestingFlag restFlag)
+{
+    uint32 oldRestMask = m_resting_FlagMask;
+    m_resting_FlagMask &= ~restFlag;
+
+    if (oldRestMask && !m_resting_FlagMask) // only remove flag/time on the last rest state remove
+    {
+        RemoveFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING);
+        m_resting_Time = 0;
+    }
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2016 ArkCORE <http://www.arkania.net/>
+ * Copyright (C) 2011-2017 ArkCORE <http://www.arkania.net/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,6 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "script_helper.h"
 #include "Creature.h"
 #include "GameObjectAI.h"
 #include "GameObject.h"
@@ -46,6 +47,13 @@ enum eKezanEnumerate
     QUEST_GIVE_SASSY_THE_NEWS = 24520,
     QUEST_LIFE_OF_THE_PARTY_M = 14153,
     QUEST_LIFE_OF_THE_PARTY_F = 14113,
+    QUEST_THE_NEW_YOU_M = 14110,
+    QUEST_THE_NEW_YOU_F = 14109,
+    QUEST_PIRATE_PARTY_CRASHERS = 14115,
+    QUEST_ROBBING_HOODS = 14121,
+    QUEST_LEARNING_THE_WORD = 14009, 
+    ITEMS_STACK_OF_MACAROONS = 47044,
+    ITEM_KEY_OF_HOT_ROD = 46856,
     NPC_CANDY_CANE = 35053,
     NPC_CHIP_ENDALE = 35054,
     NPC_HOT_ROD_34840 = 34840,
@@ -54,6 +62,7 @@ enum eKezanEnumerate
     NPC_IZZY_34959 = 34959,
     NPC_KEZAN_CITIZEN_35063 = 35063,
     NPC_KEZAN_CITIZEN_35075 = 35075,
+    NPC_HIRED_LOOTER_35234 = 35234,
     NPC_BRUNO_FLAMERETARDANT = 34835,
     NPC_FRANKIE_GEARSLIPPER = 34876,
     NPC_JACK_THE_HAMMER = 34877,
@@ -84,40 +93,13 @@ enum eKezanEnumerate
     SPELL_AWESOME_PARTY_ENSEMBLE = 66908,
     SPELL_LOTP_HAPPY_PARTYGOER = 66916,
     SPELL_TORCH_TOSS = 6257,
-    SPELL_HOT_ROD_KNOCKBACK = 70330,
+    SPELL_HOT_ROD_KNOCKBACK_1 = 66301,
+    SPELL_HOT_ROD_KNOCKBACK_2 = 70330,
     SPELL_CREATE_STOLEN_LOOT = 67041,
-    PLAYER_GUID = 99991,
-    ACTION_ENTER_CAR = 101,
-    ACTION_HELP_PLAYER,
-    ACTION_STOP_HELP_PLAYER,
-    EVENT_ENTER_CAR,
-    EVENT_TALK_PERIODIC,
-    EVENT_MUSIC_PERIODIC,
-    EVENT_CHECK_FOR_PLAYER,
-    EVENT_TALK,
-    EVENT_TALK_COOLDOWN,
-    EVENT_GIVE_UP,
-    EVENT_COMBAT_STOP,
-    EVENT_RESET_TARGET,
-    EVENT_OWNER_IS_ATTACKED,
-    EVENT_PLAY_SOUND1,
-    EVENT_PLAY_SOUND2,
-    EVENT_CAST_SPELL,
-    EVENT_EXIT_VEHICLE,
-    EVENT_EARTHQUAKE,
-    EVENT_SAY_EARTHQUAKE,
-    EVENT_ATTACK_SPELL,
-    EVENT_WAIT_TO_MOVE,
-    EVENT_MOVE_PART1,
-    EVENT_MOVE_PART2,
-    EVENT_MOVE_PART3,
-    EVENT_MOVE_PART4,
-    EVENT_MOVE_PART5,
-    EVENT_MOVE_PART6,
-    EVENT_MOVE_PART7,
-    EVENT_MOVE_PART8,
-    EVENT_MOVE_PART9,
-    EVENT_WAIT_FOR_NEW_SPEED,
+    SPELL_EARTHQUAKE_CAMERA_SHAKE = 96274,
+    SPELL_FLASH_HEAL_2061 = 2061,
+    SPELL_SUMMON_HOT_ROD_37676 = 70321,
+ 
 };
 
 void SetCombatAllowed(Creature* npc)
@@ -142,7 +124,6 @@ public:
 
     enum eNpc
     {
-        EVENT_SPELLCAST = 1,
         SPELL_SHADOW_BOLD = 69607,
         SPELL_FIREBALL = 69608,
         NPC_EVOL_FINGERS = 34696,
@@ -218,7 +199,6 @@ public:
 
     enum eNpc
     {
-        EVENT_SPELLCAST = 1,
         SPELL_SHADOW_BOLD = 69607,
         SPELL_FIREBALL = 69608,
         NPC_FIZZ_LIGHTER = 34689,
@@ -279,26 +259,22 @@ public:
     }
 };
 
-// 37804
-class npc_kaja_cola_balloon_37804 : public CreatureScript
+// 37761 
+class npc_sally_salvager_sandscrew_37761 : public CreatureScript
 {
 public:
-    npc_kaja_cola_balloon_37804() : CreatureScript("npc_kaja_cola_balloon_37804") { }
+    npc_sally_salvager_sandscrew_37761() : CreatureScript("npc_sally_salvager_sandscrew_37761") { }
 
-    enum eNPC
-    {
-        EVENTS_BALLON_MESSAGE = 201,
-    };
 
-    struct npc_kaja_cola_balloon_37804AI : public ScriptedAI
+    struct npc_sally_salvager_sandscrew_37761AI : public ScriptedAI
     {
-        npc_kaja_cola_balloon_37804AI(Creature* creature) : ScriptedAI(creature) { }
+        npc_sally_salvager_sandscrew_37761AI(Creature* creature) : ScriptedAI(creature) { }
 
         EventMap m_events;
 
         void Reset() override
         {
-            m_events.ScheduleEvent(EVENTS_BALLON_MESSAGE, 10000);
+            m_events.RescheduleEvent(EVENT_RANDOM_EMOTE, urand(5000, 10000));
         }
 
         void UpdateAI(uint32 diff) override
@@ -309,10 +285,121 @@ public:
             {
                 switch (eventId)
                 {
-                case EVENTS_BALLON_MESSAGE:
+                case EVENT_RANDOM_EMOTE:
+                    me->HandleEmote(RAND(1, 5, 6, 25, 273, 274));
+                    m_events.ScheduleEvent(EVENT_RANDOM_EMOTE, urand(6000, 10000));
+                    break;
+                }
+            }
+        }
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_sally_salvager_sandscrew_37761AI(creature);
+    }
+};
+
+// 37762  
+class npc_brett_coins_mcquid_37762 : public CreatureScript
+{
+public:
+    npc_brett_coins_mcquid_37762() : CreatureScript("npc_brett_coins_mcquid_37762") { }
+
+    struct npc_brett_coins_mcquid_37762AI : public ScriptedAI
+    {
+        npc_brett_coins_mcquid_37762AI(Creature* creature) : ScriptedAI(creature) { }
+
+        EventMap m_events;
+
+        void Reset() override
+        {
+            m_events.RescheduleEvent(EVENT_RANDOM_EMOTE, urand(5000, 10000));
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            m_events.Update(diff);
+
+            while (uint32 eventId = m_events.ExecuteEvent())
+            {
+                switch (eventId)
+                {
+                case EVENT_RANDOM_EMOTE:
+                    me->HandleEmote(RAND(1, 5, 6, 25, 273, 274));
+                    m_events.ScheduleEvent(EVENT_RANDOM_EMOTE, urand(5000, 9000));
+                    break;
+                }
+            }
+        }
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_brett_coins_mcquid_37762AI(creature);
+    }
+};
+
+// 48305 
+class npc_injured_employee_48305 : public CreatureScript
+{
+public:
+    npc_injured_employee_48305() : CreatureScript("npc_injured_employee_48305") { }
+
+    struct npc_injured_employee_48305AI : public ScriptedAI
+    {
+        npc_injured_employee_48305AI(Creature* creature) : ScriptedAI(creature) { }
+
+        EventMap m_events;
+
+        // Called when hit by a spell
+        void SpellHit(Unit* caster, SpellInfo const* spell) override
+        {
+            if (Player* player = caster->ToPlayer())
+                if (player->GetQuestStatus(QUEST_LEARNING_THE_WORD) == QUEST_STATUS_INCOMPLETE)
+                    if (spell->Id == SPELL_FLASH_HEAL_2061)
+                    {
+                        player->KilledMonsterCredit(44175);
+                        me->DespawnOrUnsummon(500);
+                    }
+        }
+};
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_injured_employee_48305AI(creature);
+    }
+};
+
+// 37804
+class npc_kaja_cola_balloon_37804 : public CreatureScript
+{
+public:
+    npc_kaja_cola_balloon_37804() : CreatureScript("npc_kaja_cola_balloon_37804") { }
+
+    struct npc_kaja_cola_balloon_37804AI : public ScriptedAI
+    {
+        npc_kaja_cola_balloon_37804AI(Creature* creature) : ScriptedAI(creature) { }
+
+        EventMap m_events;
+
+        void Reset() override
+        {
+            m_events.ScheduleEvent(EVENT_BALLON_MESSAGE, 10000);
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            m_events.Update(diff);
+
+            while (uint32 eventId = m_events.ExecuteEvent())
+            {
+                switch (eventId)
+                {
+                case EVENT_BALLON_MESSAGE:
                 {
                     Talk(0);
-                    m_events.ScheduleEvent(EVENTS_BALLON_MESSAGE, urand(30000, 45000));
+                    m_events.ScheduleEvent(EVENT_BALLON_MESSAGE, urand(30000, 45000));
                     break;
                 }
                 }
@@ -337,26 +424,26 @@ class npc_sassy_hardwrench_34668 : public CreatureScript
 public:
     npc_sassy_hardwrench_34668() : CreatureScript("npc_sassy_hardwrench_34668") { }
 
-    enum eNPC
-    {
-        // QUEST_KAJA_COLA
-        ACTION_START_RESCUE_LIVE = 902,
-        EVENT_START_RESCUE_LIVE,
-        EVENT_ENTER_THE_HOTROD,
-    };
-
     bool OnQuestAccept(Player* player, Creature* creature, Quest const* quest)
     {
-        if (quest->GetQuestId() == QUEST_TAKING_CARE_OF_BUSINESS)
-            creature->AI()->Talk(0, player);
-        else if (quest->GetQuestId() == QUEST_ROLLING_WITH_MY_HOMIES)
-            creature->AI()->Talk(1, player);
-        else if (quest->GetQuestId() == QUEST_LIFE_SAVINGS)
+        switch (quest->GetQuestId())
         {
+        case QUEST_TAKING_CARE_OF_BUSINESS:
+            creature->AI()->Talk(0, player);
+            break;
+        case QUEST_ROLLING_WITH_MY_HOMIES:
+            creature->AI()->Talk(1, player);
+            break;
+        case QUEST_LIFE_SAVINGS:
             creature->AI()->Talk(2, player);
             creature->AI()->SetGUID(player->GetGUID(), PLAYER_GUID);
             creature->AI()->DoAction(992);
+            break;
+        case QUEST_PIRATE_PARTY_CRASHERS:
+            player->CastSpell(player, SPELL_EARTHQUAKE_CAMERA_SHAKE, true);
+            break;
         }
+
         return false;
     }
 
@@ -433,8 +520,8 @@ public:
                 {
                     if (Player* player = ObjectAccessor::GetPlayer(*me, m_playerGUID))
                     {
-                        player->DestroyItemCount(46856, 1, true);
-                        player->CastSpell(player, 70321, true);                        
+                        player->DestroyItemCount(ITEM_KEY_OF_HOT_ROD, 1, true);
+                        player->CastSpell(player, SPELL_SUMMON_HOT_ROD_37676, true);  // Summon the Hot Rod 37676, trigger spell 66724 Sassy fährt
                     }
                     break;
                 }
@@ -463,19 +550,12 @@ public:
     enum eNPC
     {
         SPELL_SASSYS_INCENTIVE = 82025,
-
-        ACTION_DELIVER_BUMM_PACKET = 201,
-        EVENT_START_ANIM_BUMM_PACKET,
-        EVENT_MASTER_RESET,
-        EVENT_PACKET_EXPLODE,
-        EVENT_SAY_OUTCH,
-        EVENT_SAY_HAVE_UNDERSTAND,
     };
 
     bool OnQuestReward(Player* player, Creature* creature, Quest const* quest, uint32 /*opt*/)
     {
         if (quest->GetQuestId() == QUEST_TAKING_CARE_OF_BUSINESS)
-            creature->GetAI()->DoAction(ACTION_DELIVER_BUMM_PACKET);
+            creature->GetAI()->DoAction(ACTION_DELIVER_PACKET);
 
         if (player->GetQuestStatus(QUEST_GOOD_HELP_IS_HARD_TO_FIND) == QUEST_STATUS_REWARDED && player->GetQuestStatus(QUEST_TROUBLE_IN_THE_MINES) == QUEST_STATUS_REWARDED)
             creature->AI()->Talk(5, player);
@@ -499,9 +579,9 @@ public:
         void DoAction(int32 param) override
         {
             if (!m_anim_is_started)
-                if (param == ACTION_DELIVER_BUMM_PACKET)
+                if (param == ACTION_DELIVER_PACKET)
                 {
-                    m_events.ScheduleEvent(EVENT_START_ANIM_BUMM_PACKET, 500);
+                    m_events.ScheduleEvent(EVENT_START_ANIMATION_PACKET, 500);
                     m_events.ScheduleEvent(EVENT_MASTER_RESET, 30000);
                 }
         }
@@ -519,7 +599,7 @@ public:
                     Reset();
                     break;
                 }
-                case EVENT_START_ANIM_BUMM_PACKET:
+                case EVENT_START_ANIMATION_PACKET:
                 {
                     Talk(0);
                     m_events.ScheduleEvent(EVENT_PACKET_EXPLODE, 4000);
@@ -569,7 +649,6 @@ public:
     enum eNPC
     {
         SPELL_POWER_WORD_FORTITUDE = 74973,
-        EVENTS_TALK_COOLDOWN = 201,
     };
 
     struct npc_sister_goldskimmer_34692AI : public ScriptedAI
@@ -594,7 +673,7 @@ public:
                     {
                         Talk(0, who);
                         m_talk_cd_active = true;
-                        m_events.ScheduleEvent(EVENTS_TALK_COOLDOWN, 6000);
+                        m_events.ScheduleEvent(EVENT_TALK_COOLDOWN, 6000);
                     }
                 }
         }
@@ -607,7 +686,7 @@ public:
             {
                 switch (eventId)
                 {
-                case EVENTS_TALK_COOLDOWN:
+                case EVENT_TALK_COOLDOWN:
                 {
                     m_talk_cd_active = false;
                     break;
@@ -638,7 +717,6 @@ public:
     {
         NPC_TRAININGS_DUMMY = 48304,
         SPELL_SHOOT_GUN = 69509,
-        EVENT_SHOOT_ON_DUMMY = 201,
     };
 
     struct npc_bamm_megabomb_34673AI : public ScriptedAI
@@ -707,6 +785,15 @@ public:
         BROADCASTTEXT_USE_KEY_FOR_HOT_RED = 48504,
     };
 
+    bool OnGossipSelect(Player* player, Creature* /*creature*/, uint32 sender, uint32 action) 
+    { 
+        uint32 amount = player->GetItemCount(ITEM_KEY_OF_HOT_ROD);
+        if (player->GetQuestStatus(QUEST_ROLLING_WITH_MY_HOMIES) == QUEST_STATUS_REWARDED)
+            if (!amount)
+                player->AddItem(ITEM_KEY_OF_HOT_ROD, 1);
+        return false; 
+    }
+
     bool OnQuestAccept(Player* player, Creature* /*creature*/, Quest const* quest)
     {
         switch (quest->GetQuestId())
@@ -739,11 +826,6 @@ class npc_candy_cane_35053 : public CreatureScript
 public:
     npc_candy_cane_35053() : CreatureScript("npc_candy_cane_35053") { }
 
-    enum eNPC
-    {
-
-    };
-
     bool OnQuestAccept(Player* player, Creature* creature, Quest const* quest)
     {
         switch (quest->GetQuestId())
@@ -765,10 +847,6 @@ class npc_chip_endale_35054 : public CreatureScript
 {
 public:
     npc_chip_endale_35054() : CreatureScript("npc_chip_endale_35054") { }
-
-    enum eNPC
-    {
-    };
 
     bool OnQuestAccept(Player* player, Creature* creature, Quest const* quest)
     {
@@ -792,10 +870,6 @@ class npc_hobart_grapplehammer_48494 : public CreatureScript
 public:
     npc_hobart_grapplehammer_48494() : CreatureScript("npc_hobart_grapplehammer_48494") { }
 
-    enum eNPC
-    {
-    };
-
     struct npc_hobart_grapplehammer_48494AI : public ScriptedAI
     {
         npc_hobart_grapplehammer_48494AI(Creature* creature) : ScriptedAI(creature) { Initialize(); }
@@ -816,9 +890,9 @@ public:
 
             while (uint32 eventId = m_events.ExecuteEvent())
             {
-                switch (eventId)
+               /* switch (eventId)
                 {
-                }
+                }*/
             }
 
             if (!UpdateVictim())
@@ -843,8 +917,6 @@ public:
     enum eNPC
     {
         SPELL_GIZMO_HELMET = 91603,
-
-        EVENT_ANIM_SUBJECT_NINE = 201,
     };
 
     struct npc_subject_nine_49150AI : public ScriptedAI
@@ -855,7 +927,7 @@ public:
 
         void Reset() override
         {
-            m_events.ScheduleEvent(EVENT_ANIM_SUBJECT_NINE, 10000);
+            m_events.ScheduleEvent(EVENT_ANIMATION_SUBJECT, 10000);
             if (!me->HasAura(SPELL_GIZMO_HELMET))
                 me->CastSpell(me, SPELL_GIZMO_HELMET, true);
         }
@@ -868,11 +940,11 @@ public:
             {
                 switch (eventId)
                 {
-                case EVENT_ANIM_SUBJECT_NINE:
+                case EVENT_ANIMATION_SUBJECT:
                 {
                     me->SendPlaySound(18178, false);
                     me->HandleEmoteCommand(RAND(33, 35, 377));
-                    m_events.ScheduleEvent(EVENT_ANIM_SUBJECT_NINE, urand(15000, 18000));
+                    m_events.ScheduleEvent(EVENT_ANIMATION_SUBJECT, urand(15000, 18000));
                     break;
                 }
                 }
@@ -926,11 +998,6 @@ class npc_brute_enforcer_35304 : public CreatureScript
 public:
     npc_brute_enforcer_35304() : CreatureScript("npc_brute_enforcer_35304") { }
 
-    enum eNPC
-    {
-        EVENTS_TALK_COOLDOWN = 201,
-    };
-
     struct npc_brute_enforcer_35304AI : public ScriptedAI
     {
         npc_brute_enforcer_35304AI(Creature* creature) : ScriptedAI(creature) { }
@@ -952,7 +1019,7 @@ public:
                         {
                             Talk(0, who);
                             m_talk_cd_active = true;
-                            m_events.ScheduleEvent(EVENTS_TALK_COOLDOWN, urand(10000, 15000));
+                            m_events.ScheduleEvent(EVENT_TALK_COOLDOWN, urand(10000, 15000));
                         }
         }
 
@@ -964,7 +1031,7 @@ public:
             {
                 switch (eventId)
                 {
-                case EVENTS_TALK_COOLDOWN:
+                case EVENT_TALK_COOLDOWN:
                 {
                     m_talk_cd_active = false;
                     break;
@@ -1057,10 +1124,10 @@ public:
 };
 
 // 34840
-class npc_rod_hot_34840 : public CreatureScript
+class npc_hot_rod_34840 : public CreatureScript
 {
 public:
-    npc_rod_hot_34840() : CreatureScript("npc_rod_hot_34840") { }
+    npc_hot_rod_34840() : CreatureScript("npc_hot_rod_34840") { }
 
     enum eNPC
     {
@@ -1070,19 +1137,45 @@ public:
         EVENT_IZZY_ENTER_THE_CAR = 901,
         EVENT_GOBBER_ENTER_THE_CAR,
         EVENT_ACE_ENTER_THE_CAR,
-        EVENT_GOBBER_COOLDOWN,
+        EVENT_GOBBER_EMOTE,
+        EVENT_IZZY_EMOTE,
+        EVENT_ACE_EMOTE,
     };
 
-    struct npc_rod_hot_34840AI : public VehicleAI
+    class IfNotInRange
     {
-        npc_rod_hot_34840AI(Creature* creature) : VehicleAI(creature) { }
+    public:
+        explicit IfNotInRange(Unit* _caster) : caster(_caster) { }
+
+        bool operator() (WorldObject* unit)
+        {
+            Position pos = caster->GetPosition();
+            if (unit->GetPosition().GetExactDist(&pos) > 10.0f)
+                return true;
+            if (unit->GetEntry() != NPC_KEZAN_CITIZEN_35063 && unit->GetEntry() != NPC_KEZAN_CITIZEN_35075 && unit->GetEntry() != NPC_HIRED_LOOTER_35234)
+                return true;
+            if (Creature* npc = unit->ToCreature())
+                if (!npc->IsAlive())
+                    return true; 
+            if (unit->GetPosition().GetExactDist(&pos) < 3.0f)
+                return false;
+            if (caster->isInFront(unit))
+                return false;
+
+            return true;
+        }
+        Unit* caster;
+    };
+
+    struct npc_hot_rod_34840AI : public VehicleAI
+    {
+        npc_hot_rod_34840AI(Creature* creature) : VehicleAI(creature) { }
 
         EventMap m_events;
         uint64   m_playerGUID;
         uint64   m_izzyGUID;
         uint64   m_gobberGUID;
         uint64   m_aceGUID;
-        bool     m_gobberEmoteCD;
 
         void Reset() override
         {
@@ -1090,7 +1183,8 @@ public:
             m_izzyGUID = 0;
             m_gobberGUID = 0;
             m_aceGUID = 0;
-            m_gobberEmoteCD = false;
+            m_events.RescheduleEvent (EVENT_CHECK_FOR_CREATURE, 1000);
+            me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_NPC);
         }
 
         void IsSummonedBy(Unit* summoner) override
@@ -1159,33 +1253,41 @@ public:
                 }
                 else if (Creature* npc = unit->ToCreature())
                 {
+                    unit->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_NPC);
+                    npc->SetReactState(REACT_PASSIVE);
                     if (!m_izzyGUID)
                         if (npc->GetEntry() == NPC_IZZY_34959)
+                        {
                             m_izzyGUID = npc->GetGUID();
+                            m_events.RescheduleEvent(EVENT_IZZY_EMOTE, urand(2000, 10000));
+                        }
                     if (!m_gobberGUID)
                         if (npc->GetEntry() == NPC_GOBBER_34958)
+                        {
                             m_gobberGUID = npc->GetGUID();
+                            m_events.RescheduleEvent(EVENT_GOBBER_EMOTE, urand(2000, 10000));
+                        }
                     if (!m_aceGUID)
                         if (npc->GetEntry() == NPC_ACE_34957)
+                        {
                             m_aceGUID = npc->GetGUID();
+                            m_events.RescheduleEvent(EVENT_ACE_EMOTE, urand(2000, 10000));
+                        }
+                }
+            }
+            else
+            {
+                if (Creature* npc = unit->ToCreature())
+                {
+                    npc->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_NPC);
+                    npc->SetReactState(REACT_DEFENSIVE);
+                    if (Player* player = ObjectAccessor::GetPlayer(*me, m_playerGUID))
+                        npc->GetMotionMaster()->MoveChase(player, frand(3.0f, 5.0f), frand(2.0f, 4.2f));
                 }
             }
         }
 
-        void MoveInLineOfSight(Unit* who) override
-        {
-            if (!m_gobberEmoteCD)
-                if (Vehicle* vehicle = me->GetVehicleKit())
-                    if (Unit* gobber = vehicle->GetPassenger(2))
-                        if (who->GetEntry() == NPC_KEZAN_CITIZEN_35063 || who->GetEntry() == NPC_KEZAN_CITIZEN_35075)
-                            if (who->GetDistance2d(me) < 15.0f)
-                                if (urand(0, 100) < 25)
-                                {
-                                    gobber->HandleEmoteCommand(EMOTE_ONESHOT_ROAR);
-                                    m_gobberEmoteCD = true;
-                                    m_events.ScheduleEvent(EVENT_GOBBER_COOLDOWN, 5000);
-                                }
-        }
+       // void EnterCombat(Unit* /*who*/) override  {  }
 
         void UpdateAI(uint32 diff) override
         {
@@ -1235,9 +1337,36 @@ public:
                     }
                     break;
                 }
-                case EVENT_GOBBER_COOLDOWN:
+                case EVENT_IZZY_EMOTE:
                 {
-                    m_gobberEmoteCD = false;
+                    if (Creature* npc = ObjectAccessor::GetCreature(*me, m_izzyGUID))
+                        npc->HandleEmote(RAND(1, 5, 6, 11, 25, 273, 274));
+                    m_events.ScheduleEvent(EVENT_IZZY_EMOTE, urand(6000, 11000));
+                    break;
+                }
+                case EVENT_GOBBER_EMOTE:
+                {
+                    if (Creature* npc = ObjectAccessor::GetCreature(*me, m_gobberGUID))
+                        npc->HandleEmote(RAND(1, 3, 11, 15, 20, 94, 440, 463));
+                    m_events.ScheduleEvent(EVENT_GOBBER_EMOTE, urand(8000, 13000));
+                    break;
+                }
+                case EVENT_ACE_EMOTE:
+                {
+                    if (Creature* npc = ObjectAccessor::GetCreature(*me, m_aceGUID))
+                        npc->HandleEmote(RAND(1, 5, 6, 11, 25, 273, 274));
+                    m_events.ScheduleEvent(EVENT_ACE_EMOTE, urand(7000, 12000));
+                    break;
+                }
+                case EVENT_CHECK_FOR_CREATURE:
+                {
+                    std::list<Creature*> cList = me->FindAllCreaturesInRange(10.0f);
+                    cList.remove_if(IfNotInRange(me));
+                    if (Player* player = ObjectAccessor::GetPlayer(*me, m_playerGUID))
+                        for (auto npc : cList)
+                            player->CastSpell(npc, SPELL_HOT_ROD_KNOCKBACK_1);
+
+                    m_events.ScheduleEvent(EVENT_CHECK_FOR_CREATURE, 250);
                     break;
                 }
                 }
@@ -1252,7 +1381,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return new npc_rod_hot_34840AI(creature);
+        return new npc_hot_rod_34840AI(creature);
     }
 };
 
@@ -1281,10 +1410,7 @@ public:
 
         void Reset() override
         {
-            m_targetGUID = 0;
-            me->setFaction(2204); 
-            me->SetReactState(REACT_DEFENSIVE);
-            me->GetMotionMaster()->MoveIdle();
+
         }
 
         void IsSummonedBy(Unit* summoner) override
@@ -1306,9 +1432,6 @@ public:
             if (Player* player = ObjectAccessor::GetPlayer(*me, m_playerGUID))
                 if (urand(0, 100) < 60)
                     Talk(0, player);
-            //me->SetReactState(REACT_AGGRESSIVE);            
-            me->GetMotionMaster()->Clear();
-            me->GetMotionMaster()->MoveChase(victim, 2.0f);
             m_targetGUID = victim->GetGUID();
         }
 
@@ -1345,6 +1468,12 @@ public:
                 m_events.ScheduleEvent(EVENT_ENTER_CAR, 500);
                 break;
             }
+        }
+
+        void EnterEvadeMode() override
+        {
+            if (Player* player = ObjectAccessor::GetPlayer(*me, m_playerGUID))
+                me->GetMotionMaster()->MoveChase(player, frand(3.0f, 5.0f), frand(2.0f, 4.2f));
         }
 
         void UpdateAI(uint32 diff) override
@@ -1406,10 +1535,7 @@ public:
 
         void Reset() override
         {
-            m_targetGUID = 0;
-            me->setFaction(2204);
-            me->SetReactState(REACT_DEFENSIVE);
-            me->GetMotionMaster()->MoveIdle();
+
         }
 
         void IsSummonedBy(Unit* summoner) override
@@ -1428,14 +1554,9 @@ public:
 
         void EnterCombat(Unit* victim) override
         {
-            if (Player* player = ObjectAccessor::GetPlayer(*me, m_playerGUID))
-                if (urand(0, 100) < 60)
-                    Talk(0, player);
-            //me->SetReactState(REACT_AGGRESSIVE);
-            me->GetMotionMaster()->Clear();
-            me->GetMotionMaster()->MoveChase(victim, 2.0f);
             m_targetGUID = victim->GetGUID();
         }
+
         void SetGUID(uint64 guid, int32 id) override
         {
             switch (id)
@@ -1469,6 +1590,12 @@ public:
                 m_events.ScheduleEvent(EVENT_ENTER_CAR, 500);
                 break;
             }
+        }
+
+        void EnterEvadeMode() override
+        {
+            if (Player* player = ObjectAccessor::GetPlayer(*me, m_playerGUID))
+                me->GetMotionMaster()->MoveChase(player, frand(3.0f, 5.0f), frand(2.0f, 4.2f));
         }
 
         void UpdateAI(uint32 diff) override
@@ -1529,10 +1656,7 @@ public:
 
         void Reset() override
         {
-            m_targetGUID = 0;
-            me->setFaction(2204);
-            me->SetReactState(REACT_DEFENSIVE);
-            me->GetMotionMaster()->MoveIdle();
+
         }
 
         void IsSummonedBy(Unit* summoner) override
@@ -1554,9 +1678,6 @@ public:
             if (Player* player = ObjectAccessor::GetPlayer(*me, m_playerGUID))
                 if (urand(0, 100) < 60)
                     Talk(0, player);
-            //me->SetReactState(REACT_AGGRESSIVE);
-            me->GetMotionMaster()->Clear();
-            me->GetMotionMaster()->MoveChase(victim, 2.0f);
             m_targetGUID = victim->GetGUID();
         }
 
@@ -1595,6 +1716,12 @@ public:
             }
         }
 
+        void EnterEvadeMode() override 
+        { 
+            if (Player* player = ObjectAccessor::GetPlayer(*me, m_playerGUID))
+                me->GetMotionMaster()->MoveChase(player, frand(3.0f, 5.0f), frand(2.0f, 4.2f));
+        }
+
         void UpdateAI(uint32 diff) override
         {
             m_events.Update(diff);
@@ -1625,6 +1752,29 @@ public:
     CreatureAI* GetAI(Creature* creature) const override
     {
         return new npc_ace_34957AI(creature);
+    }
+};
+
+// 35120
+class npc_fbok_bank_teller_35120 : public CreatureScript
+{
+public:
+    npc_fbok_bank_teller_35120() : CreatureScript("npc_fbok_bank_teller_35120") { }
+
+    bool OnQuestAccept(Player* player, Creature* creature, Quest const* quest)
+    {
+        switch (quest->GetQuestId())
+        {
+        case QUEST_THE_NEW_YOU_M:
+        case QUEST_THE_NEW_YOU_F:
+        {
+            uint32 amount = 10 - player->GetItemCount(ITEMS_STACK_OF_MACAROONS);
+            if (amount > 0)
+                player->AddItem(ITEMS_STACK_OF_MACAROONS, amount);
+            break;
+        }
+        }
+        return false;
     }
 };
 
@@ -2221,9 +2371,14 @@ public:
     {
         switch (quest->GetQuestId())
         {
+        case QUEST_NECCASSARY_ROUGHNESS:
+        {
+            player->ExitVehicle();
+            player->AddAura(SPELL_INVISIBILITY_DETECTION_4, player);
+            return true;
+        }
         case QUEST_REPORT_FOR_TRYOUTS:
         case QUEST_THE_REPLACEMENTS:
-        case QUEST_NECCASSARY_ROUGHNESS:
         case QUEST_FOURTH_AND_GOAL:
             player->AddAura(SPELL_INVISIBILITY_DETECTION_4, player);
             break;
@@ -2241,8 +2396,6 @@ public:
     enum eNpc
     {
         SPELL_SUMMON_STEAMWHEEDLE_SHARK = 69971,
-        EVENT_START_PLAY_GAME = 901,
-        EVENT_OBSERVER_CHEERING,
     };
 
     struct npc_bilgewater_buccaneer_37179AI : public VehicleAI
@@ -2258,7 +2411,6 @@ public:
         {
             m_playerGUID = 0;
             me->AddAura(SPELL_QUEST_INVISIBILITY_5, me);
-            me->SetOrientation(3.14f);
         }
 
         void JustSummoned(Creature* summon) override
@@ -2276,6 +2428,7 @@ public:
             {
                 if (Player* player = unit->ToPlayer())
                 {
+                    me->SetOrientation(3.14f);
                     m_playerGUID = player->GetGUID();
                     player->RemoveAura(SPELL_INVISIBILITY_DETECTION_4);
                     player->AddAura(SPELL_INVISIBILITY_DETECTION_5, player);
@@ -2284,7 +2437,7 @@ public:
                         player->KilledMonsterCredit(NPC_NECESSARY_ROUGHNESS_KILL_CREDIT);
                         m_events.ScheduleEvent(EVENT_PLAY_SOUND1, 1000);
                         m_events.ScheduleEvent(EVENT_START_PLAY_GAME, 4000);
-                        m_events.ScheduleEvent(EVENT_OBSERVER_CHEERING, 250);
+                        m_events.ScheduleEvent(EVENT_PERIODIC_CHEERING, 250);
                     }
                 }
             }
@@ -2299,7 +2452,7 @@ public:
             }
         }
 
-        void MoveInLineOfSight_Safe(Unit* who)
+        void CreatureMoveInLineOfSight(Unit* who) override
         {
             if (who->GetEntry() == NPC_STEAMWHEEDLE_SHARK)
                 if (who->GetDistance2d(me) < 3.0f)
@@ -2334,13 +2487,13 @@ public:
                     StartPlayGame();
                     break;
                 }
-                case EVENT_OBSERVER_CHEERING:
+                case EVENT_PERIODIC_CHEERING:
                 {
                     for (uint32 i = 0; i < urand(3, 10); i++)
                         if (Creature* npc = GetRandomObserver())
                             npc->HandleEmoteCommand(GetRandomEmote());
 
-                    m_events.ScheduleEvent(EVENT_OBSERVER_CHEERING, 500);
+                    m_events.ScheduleEvent(EVENT_PERIODIC_CHEERING, 500);
                     break;
                 }
                 }
@@ -2412,11 +2565,6 @@ class npc_steamwheedle_shark_37114 : public CreatureScript
 {
 public:
     npc_steamwheedle_shark_37114() : CreatureScript("npc_steamwheedle_shark_37114") { }
-
-    enum eNpc
-    {
-        EVENT_WE_ARE_KILLED = 901,
-    };
 
     struct npc_steamwheedle_shark_37114AI : public ScriptedAI
     {
@@ -2499,7 +2647,6 @@ public:
     enum eNpc
     {
         SPELL_SUMMON_DEATHWING = 66322,
-        EVENT_SUMMON_DEATHWING = 901,
     };
 
     struct npc_bilgewater_buccaneer_37213AI : public VehicleAI
@@ -2871,6 +3018,7 @@ public:
 
     enum eNpc
     {
+        NPC_OOMLOT_WARRIER_38531 = 38531,
     };
 
     struct npc_elm_general_purpose_bunny_large_24110AI : public ScriptedAI
@@ -2878,11 +3026,66 @@ public:
         npc_elm_general_purpose_bunny_large_24110AI(Creature* creature) : ScriptedAI(creature) {  }
 
         EventMap m_events;
-        uint64   m_playerGUID;        
+        uint64   m_playerGUID;
+        uint32   m_oomlot_counter;
+        uint32   m_chain_position;
+        uint64   m_nearestChainGUID;
+        bool     m_validPlayerNear;
 
         void Reset() override
         {
-            m_events.ScheduleEvent(EVENT_MUSIC_PERIODIC, 2500);
+            m_oomlot_counter = 0;
+            m_chain_position = 0;
+            m_nearestChainGUID = 0;
+            m_validPlayerNear = false;
+            if (me->GetMapId() == 648)
+                if (me->HasInPhaseList(379)) // kezan, play musik on party
+                    m_events.ScheduleEvent(EVENT_MUSIC_PERIODIC, 2500);
+                else if (me->HasInPhaseList(181)) // lost isles.. create oomlot warrier..
+                    m_events.RescheduleEvent(EVENT_CHECK_POSITION, 1000);
+        }
+
+        void JustSummoned(Creature* summon) override
+        {
+            switch (summon->GetEntry())
+            {
+            case NPC_OOMLOT_WARRIER_38531:
+                m_oomlot_counter += 1;
+                break;
+            }
+        }
+
+        void SummonedCreatureDies(Creature* summon, Unit* killer) override
+        {
+            switch (summon->GetEntry())
+            {
+            case NPC_OOMLOT_WARRIER_38531:
+                if (m_oomlot_counter > 0)
+                    m_oomlot_counter -= 1;
+                break;
+            }
+        }
+
+        void SummonedCreatureDespawn(Creature* summon) override
+        {
+            switch (summon->GetEntry())
+            {
+            case NPC_OOMLOT_WARRIER_38531:
+                if (m_oomlot_counter > 0)
+                    m_oomlot_counter -= 1;
+                break;
+            }
+        }
+
+        void DoAction(int32 param) override 
+        { 
+            switch (param)
+            {
+            case 5:
+                m_validPlayerNear = true;
+                m_events.RescheduleEvent(EVENT_COOLDOWN_PLAYER_NEAR, 150000);
+                break;
+            }
         }
 
         void UpdateAI(uint32 diff) override
@@ -2903,13 +3106,61 @@ public:
                     m_events.ScheduleEvent(EVENT_MUSIC_PERIODIC, 2500);
                     break;
                 }
+                case EVENT_CHECK_POSITION:
+                {
+                    if (m_chain_position == 0)
+                    {
+                        if (Creature* sassy = me->FindNearestCreature(38387, 90.0f))
+                        {
+                            float dist = me->GetDistance(sassy);
+                            if (dist < 40.0f)
+                                m_chain_position = 1; // to near.. no spawn of oomlot warrier
+                            else
+                                m_chain_position = 2; // cannon area.. spawn of oomlot warrier: if player has entered cannon
+                            m_events.RescheduleEvent(EVENT_CHECK_POSITION, 1000);
+                        }
+                        else
+                        {
+                            m_chain_position = 3; // far spawn of oomlot warrier  to populate the way..
+                            m_events.RescheduleEvent(EVENT_CHECK_POSITION, 1000);
+                            m_events.RescheduleEvent(EVENT_CREATE_WARRIER, 2500);
+                        }
+                    }
+                    break;
+                }
+                case EVENT_CREATE_WARRIER:
+                {
+                    if (m_validPlayerNear == false)
+                        m_events.RescheduleEvent(EVENT_COOLDOWN_PLAYER_NEAR, 1000);
+                    else if (m_oomlot_counter < 2)
+                    {
+                        Position pos = me->GetNearPosition(3.0f, frand(0, 6.28f));
+                        me->SummonCreature(38531, pos, TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN, 250000);
+                    }
+
+                    m_events.RescheduleEvent(EVENT_CREATE_WARRIER, 2500);
+                    break;
+                }
+                case EVENT_COOLDOWN_PLAYER_NEAR:
+                {
+                    bool check = false;
+                    std::list<Player*> pList = me->FindNearestPlayers(100.0f);
+                    for (auto player : pList)
+                        if (player->HasInPhaseList(181))
+                            check = true;
+                    if (check)
+                    {
+                        std::list<Creature*> cList = me->FindNearestCreatures(24110, 100.0f);
+                        for (auto npc : cList)
+                            npc->AI()->DoAction(5);
+                    }
+
+                    m_validPlayerNear = check;
+                    m_events.RescheduleEvent(EVENT_COOLDOWN_PLAYER_NEAR, 150000);
+                    break;
+                }
                 }
             }
-
-            if (!UpdateVictim())
-                return;
-            else
-                DoMeleeAttackIfReady();
         }
     };
 
@@ -2955,9 +3206,6 @@ public:
         SPELL_PLAYER_DANCE = 66911,
         SPELL_PLAYER_FIREWORKS = 66912,
         SPELL_PLAYER_HORS_DOEUVRES = 66913,
-        EVENT_CHECK_START_PARTY = 901,
-        EVENT_START_PARTY,
-        EVENT_PARTY_START_COOLDOWN,
     };
 
     struct npc_kezan_partygoer_35175_86AI : public ScriptedAI
@@ -3078,19 +3326,19 @@ public:
                                 Talk(m_partyTyp, player);
                                 m_doing = true;
                                 m_cooldown = true;
-                                m_events.ScheduleEvent(EVENT_PARTY_START_COOLDOWN, 120000);
+                                m_events.ScheduleEvent(EVENT_PARTY_COOLDOWN, 120000);
                             }
                             else
                             {
                                 m_cooldown = true;
-                                m_events.ScheduleEvent(EVENT_PARTY_START_COOLDOWN, urand(30000, 60000));
+                                m_events.ScheduleEvent(EVENT_PARTY_COOLDOWN, urand(30000, 60000));
                             }
                         }
 
                     m_events.ScheduleEvent(EVENT_CHECK_START_PARTY, 1000);
                     break;
                 }
-                case EVENT_PARTY_START_COOLDOWN:
+                case EVENT_PARTY_COOLDOWN:
                 {
                     m_doing = false;
                     m_cooldown = false;
@@ -3158,11 +3406,6 @@ class npc_hired_looter_35234 : public CreatureScript
 public:
     npc_hired_looter_35234() : CreatureScript("npc_hired_looter_35234") { }
 
-    enum eNpc
-    {
-        EVENT_TORCH_COOLDOWN = 901,
-    };
-
     struct npc_hired_looter_35234AI : public ScriptedAI
     {
         npc_hired_looter_35234AI(Creature* creature) : ScriptedAI(creature) { Initialize(); }
@@ -3170,39 +3413,47 @@ public:
         EventMap m_events;
         uint64   m_playerGUID;
         bool     m_torchCoolDown;
+        bool     m_markToKill;
 
         void Initialize()
         {
             m_torchCoolDown=false;
+            m_markToKill=false;
         }
 
         void Reset() override
         {
-           me->SetCurrentEquipmentId(1);
            m_playerGUID = 0;
+           me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_NPC | UNIT_FLAG_IMMUNE_TO_PC);
+           me->ClearUnitState(UNIT_STATE_STUNNED);
         }
 
         void EnterCombat(Unit* victim) override
         {
-            if (!m_torchCoolDown)
-            {
-                me->CastSpell(victim, SPELL_TORCH_TOSS);
-                m_torchCoolDown = true;
-                m_events.ScheduleEvent(EVENT_TORCH_COOLDOWN, urand(7800, 21300));
-            }
-
+            if (!m_markToKill)
+                if (!m_torchCoolDown)
+                {
+                    me->CastSpell(victim, SPELL_TORCH_TOSS);
+                    m_torchCoolDown = true;
+                    m_events.ScheduleEvent(EVENT_TORCH_COOLDOWN, urand(7800, 21300));
+                }
         }
 
         void SpellHit(Unit* caster, SpellInfo const* spell) override
         {
-            if (spell->Id == SPELL_HOT_ROD_KNOCKBACK)
-                if (Player* player = caster->ToPlayer())
-                    if (player->GetDistance2d(me) < 20.0f)
+            if (!m_markToKill)
+                if (spell->Id == SPELL_HOT_ROD_KNOCKBACK_1)
+                    if (Player* player = GetPlayer(caster))
                     {
-                        me->CastSpell(player, SPELL_CREATE_STOLEN_LOOT, true);
-                        me->DespawnOrUnsummon(100);
+                        me->AddUnitState(UNIT_STATE_STUNNED);
+                        me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_NPC | UNIT_FLAG_IMMUNE_TO_PC);
+                        m_playerGUID = player->GetGUID();                        
+                        m_markToKill = true;
+                        m_events.ScheduleEvent(EVENT_KILL_TARGET, 1000);
                     }
         }
+
+        void EnterEvadeMode() override { }
 
         void UpdateAI(uint32 diff) override
         {
@@ -3217,6 +3468,16 @@ public:
                     m_torchCoolDown = false;
                     break;
                 }
+                case EVENT_KILL_TARGET:
+                {
+                    if (Player* player = ObjectAccessor::GetPlayer(*me, m_playerGUID))
+                    {
+                        if (player->GetQuestStatus(QUEST_ROBBING_HOODS) == QUEST_STATUS_INCOMPLETE)
+                            me->CastSpell(player, SPELL_CREATE_STOLEN_LOOT, true);
+                        player->Kill(me);
+                    }
+                    break;
+                }
                 }
             }
 
@@ -3224,6 +3485,17 @@ public:
                 return;
             else
                 DoMeleeAttackIfReady();
+        }
+
+        Player* GetPlayer(Unit* caster)
+        {
+            if (Player* player = caster->ToPlayer())
+                return player;
+            else if (Vehicle* hot = caster->GetVehicleKit())
+                if (Unit* pass = hot->GetPassenger(0))
+                    if (Player* player = pass->ToPlayer())
+                        return player;
+            return nullptr;
         }
     };
 
@@ -3233,11 +3505,11 @@ public:
     }
 };
 
-// 35063
+// 35063 35073
 class npc_kezan_citizen_35063 : public CreatureScript
 {
 public:
-    npc_kezan_citizen_35063() : CreatureScript("npc_kezan_citizen_35063") { }
+    npc_kezan_citizen_35063() : CreatureScript("npc_kezan_citizen_35063_35075") { }
 
     struct npc_kezan_citizen_35063AI : public ScriptedAI
     {
@@ -3253,13 +3525,15 @@ public:
 
         void SpellHit(Unit* caster, SpellInfo const* spell) override
         {
-            if (spell->Id == SPELL_HOT_ROD_KNOCKBACK)
-                if (Player* player = caster->ToPlayer())
-                {
-                    Talk(0, player);
-                    m_talkCoolDown = true;
-                    m_events.ScheduleEvent(EVENT_TALK_COOLDOWN, 20000);
-                }
+            if (!m_talkCoolDown)
+                if (spell->Id == SPELL_HOT_ROD_KNOCKBACK_1 || spell->Id == SPELL_HOT_ROD_KNOCKBACK_2)
+                    if (Player* player = GetPlayer(caster))
+                    {
+                        Talk(0, player); // 1411, 18500 (5)
+                        m_talkCoolDown = true;
+                        m_events.ScheduleEvent(EVENT_TALK_COOLDOWN, 20000);
+                        m_events.ScheduleEvent(EVENT_MOVE_HOME, 10000);
+                    }
         }
 
         void UpdateAI(uint32 diff) override
@@ -3275,6 +3549,11 @@ public:
                     m_talkCoolDown = false;
                     break;
                 }
+                case EVENT_MOVE_HOME:
+                {
+                    me->GetMotionMaster()->MoveTargetedHome();
+                    break;
+                }
                 }
             }
 
@@ -3282,6 +3561,17 @@ public:
                 return;
             else
                 DoMeleeAttackIfReady();
+        }
+
+        Player* GetPlayer(Unit* caster)
+        {
+            if (Player* player = caster->ToPlayer())
+                return player;
+            else if (Vehicle* hot = caster->GetVehicleKit())
+                if (Unit* pass = hot->GetPassenger(0))
+                    if (Player* player = pass->ToPlayer())
+                        return player;
+            return nullptr;
         }
     };
 
@@ -3311,12 +3601,6 @@ public:
         SPELL_VAULT_CRACKING_TOOLSET = 67476,
         SPELL_VEHICLE_EXIT_SPELL = 67579,
         SPELL_VAULT_CRACKED = 67492,
-        EVENT_START_PLAY = 901,
-        EVENT_PLAYING,
-        EVENTS_PLAY_COOLDOWN,
-        EVENT_CHECK_TIMEOUT,
-        EVENT_MASTER_RESET,
-        EVENT_PLAYER_EXIT,
     };
 
     struct npc_first_bank_of_kezan_vault_35486AI : public VehicleAI
@@ -3504,16 +3788,98 @@ public:
     }
 };
 
+// 35200
+class npc_pirate_party_crasher_35200 : public CreatureScript
+{
+public:
+    npc_pirate_party_crasher_35200() : CreatureScript("npc_pirate_party_crasher_35200") { }
+
+    struct npc_pirate_party_crasher_35200AI : public ScriptedAI
+    {
+        npc_pirate_party_crasher_35200AI(Creature* creature) : ScriptedAI(creature) { }
+
+        EventMap m_events;
+        bool m_castCooldown;
+
+        void Reset()
+        {
+            me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_NPC);
+            m_castCooldown = false;
+        }
+
+        void DamageTaken(Unit* attacker, uint32& damage) override
+        {
+            if (!m_castCooldown)
+            {
+                m_castCooldown = true;
+                m_events.ScheduleEvent(EVENT_CAST_COOLDOWN, urand(11000, 17800));
+                me->CastSpell(attacker, 75361);
+            }
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            m_events.Update(diff);
+
+            while (uint32 eventId = m_events.ExecuteEvent())
+            {
+                switch (eventId)
+                {
+                case EVENT_CAST_COOLDOWN:
+                    m_castCooldown = false;
+                    break;
+                }
+            }
+
+            if (!UpdateVictim())
+                return;
+            else
+                DoMeleeAttackIfReady();
+        }
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_pirate_party_crasher_35200AI(creature);
+    }
+};
+
+// 35202
+class npc_kezan_partygoer_35202 : public CreatureScript
+{
+public:
+    npc_kezan_partygoer_35202() : CreatureScript("npc_kezan_partygoer_35202") { }
+
+    struct npc_kezan_partygoer_35202AI : public ScriptedAI
+    {
+        npc_kezan_partygoer_35202AI(Creature* creature) : ScriptedAI(creature) { }
+
+        EventMap m_events;
+        bool m_castCooldown;
+
+        void Reset()
+        {
+            me->SetReactState(REACT_PASSIVE);
+        }
+
+        void DamageTaken(Unit* attacker, uint32& damage) override
+        {
+            if (attacker->GetEntry() == 35200)
+                me->SetReactState(REACT_AGGRESSIVE);
+        }
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_kezan_partygoer_35202AI(creature);
+    }
+};
+
 // 37598
 class npc_gasbot_37598 : public CreatureScript
 {
 public:
     npc_gasbot_37598() : CreatureScript("npc_gasbot_37598") { }
-
-    enum eNpc
-    {
-      
-    };
 
     struct npc_gasbot_37598AI : public VehicleAI
     {
@@ -3635,7 +4001,7 @@ public:
 
                     if (!fire)
                         go->Delete();
-                    m_events.ScheduleEvent(EVENT_TALK_PERIODIC, 2500);
+                    m_events.ScheduleEvent(EVENT_CHECK_FOR_PLAYER, 2500);
                     break;
                 }
                 }
@@ -3800,29 +4166,79 @@ public:
                     break;
                 }
         }
-
-        void UpdateAI(uint32 diff) override
-        {
-            m_events.Update(diff);
-
-            while (uint32 eventId = m_events.ExecuteEvent())
-            {
-                switch (eventId)
-                {
-
-                }
-            }
-
-            if (!UpdateVictim())
-                return;
-            else
-                DoMeleeAttackIfReady();
-        }
     };
 
     CreatureAI* GetAI(Creature* creature) const override
     {
         return new npc_hot_rod_37676AI(creature);
+    }
+};
+
+// 70330
+class spell_knock_back_70330 : public SpellScriptLoader
+{
+public:
+    spell_knock_back_70330() : SpellScriptLoader("spell_knock_back_70330") { }
+
+    class IsNotInEntryList
+    {
+    public:
+        explicit IsNotInEntryList(std::list<uint32>entrys) : _entrys(entrys) { }
+
+        bool operator()(WorldObject* obj) const
+        {
+            if (Creature* target = obj->ToCreature())
+                for (std::list<uint32>::const_iterator itr = _entrys.begin(); itr != _entrys.end(); ++itr)
+                    if (target->GetEntry() == *itr)
+                        return false;
+
+            return true;
+        }
+
+    private:
+        std::list<uint32> _entrys;
+    };
+
+    class TargetNotInRangeCheck
+    {
+    public:
+        explicit TargetNotInRangeCheck(Unit* _caster) : caster(_caster) { }
+
+        bool operator() (WorldObject* unit)
+        {
+            Position pos = caster->GetPosition();
+            if (unit->GetPosition().GetExactDist(&pos) < 5.0f)
+                return false;
+
+            return true;
+        }
+        Unit* caster;
+    };
+
+    class spell_knock_back_70330_SpellScript : public SpellScript
+    {
+        PrepareSpellScript(spell_knock_back_70330_SpellScript);
+
+        void FilterTargets(std::list<WorldObject*>& targets)
+        {
+            std::list<uint32>entrys;
+            entrys.push_back(NPC_HOT_ROD_34840); // wrong.. shold only be: 37676
+            entrys.push_back(NPC_HIRED_LOOTER_35234);
+            entrys.push_back(NPC_KEZAN_CITIZEN_35063);
+            entrys.push_back(NPC_KEZAN_CITIZEN_35075);
+            targets.remove_if(IsNotInEntryList(entrys));
+            targets.remove_if(TargetNotInRangeCheck(GetCaster()));
+        }
+
+        void Register() override
+        {
+            OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_knock_back_70330_SpellScript::FilterTargets, EFFECT_0, TARGET_UNIT_CONE_ENTRY);
+        }
+    };
+
+    SpellScript* GetSpellScript() const override
+    {
+        return new spell_knock_back_70330_SpellScript();
     }
 };
 
@@ -3853,6 +4269,9 @@ void AddSC_zone_kezan()
 {
     new npc_fizz_lighter_34689();
     new npc_evol_fingers_34696();
+    new npc_sally_salvager_sandscrew_37761();
+    new npc_brett_coins_mcquid_37762();
+    new npc_injured_employee_48305();
     new npc_kaja_cola_balloon_37804();
     new npc_sassy_hardwrench_34668();
     new npc_foreman_dampwick_34872();
@@ -3868,10 +4287,11 @@ void AddSC_zone_kezan()
     new at_kezan_ace_5497();
     new at_kezan_gobber_5498();
     new at_kezan_izzy_5499();
-    new npc_rod_hot_34840();
+    new npc_hot_rod_34840();
     new npc_ace_34957();
     new npc_gobber_34958();
     new npc_izzy_34959();
+    new npc_fbok_bank_teller_35120();
     new go_disco_ball_201591();
     new npc_tunneling_worm_34865();
     new npc_warrior_matic_nx__34697();
@@ -3889,13 +4309,16 @@ void AddSC_zone_kezan()
     new npc_elm_general_purpose_bunny_large_24110();
     new go_kajamite_deposit_195488();
     new npc_kezan_partygoer_35175_86();
-    // new npc_hired_looter_35234();
-    // new npc_kezan_citizen_35063();
+    new npc_hired_looter_35234();
+    new npc_kezan_citizen_35063();
     new npc_first_bank_of_kezan_vault_35486();
+    new npc_pirate_party_crasher_35200();
+    new npc_kezan_partygoer_35202();
     new npc_gasbot_37598();
     new go_447_fire_201745();
     new go_gasbot_control_panel_201736();
     new npc_hot_rod_37676();
+    new spell_knock_back_70330();
     new npc_trade_prince_gallywix_35222();
 
 }

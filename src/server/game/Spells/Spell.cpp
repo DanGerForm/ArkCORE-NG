@@ -1554,9 +1554,9 @@ void Spell::SelectImplicitTrajTargets(SpellEffIndex effIndex)
     float srcToDestDelta = m_targets.GetDstPos()->m_positionZ - m_targets.GetSrcPos()->m_positionZ;
 
     std::list<WorldObject*> targets;
-    Trinity::WorldObjectSpellTrajTargetCheck check(dist2d, m_targets.GetSrcPos(), m_caster, m_spellInfo);
+    Trinity::WorldObjectSpellTrajTargetCheck check(dist2d, m_targets.GetDstPos(), m_caster, m_spellInfo); 
     Trinity::WorldObjectListSearcher<Trinity::WorldObjectSpellTrajTargetCheck> searcher(m_caster, targets, check, GRID_MAP_TYPE_MASK_ALL);
-    SearchTargets<Trinity::WorldObjectListSearcher<Trinity::WorldObjectSpellTrajTargetCheck> > (searcher, GRID_MAP_TYPE_MASK_ALL, m_caster, m_targets.GetSrcPos(), dist2d);
+    SearchTargets<Trinity::WorldObjectListSearcher<Trinity::WorldObjectSpellTrajTargetCheck> > (searcher, GRID_MAP_TYPE_MASK_ALL, m_caster, m_targets.GetDstPos(), dist2d); 
     if (targets.empty())
         return;
 
@@ -2436,9 +2436,14 @@ void Spell::DoAllEffectOnTarget(TargetInfo* target)
         // Fill base damage struct (unitTarget - is real spell target)
         SpellNonMeleeDamage damageInfo(caster, unitTarget, m_spellInfo->Id, m_spellSchoolMask);
 
-        // Add bonuses and fill damageInfo struct
-        caster->CalculateSpellDamageTaken(&damageInfo, m_damage, m_spellInfo, m_attackType,  target->crit);
-        caster->DealDamageMods(damageInfo.target, damageInfo.damage, &damageInfo.absorb);
+        if (caster->IsFakeAttack(unitTarget))
+            damageInfo.damage = 0;
+        else
+        {
+            // Add bonuses and fill damageInfo struct
+            caster->CalculateSpellDamageTaken(&damageInfo, m_damage, m_spellInfo, m_attackType, target->crit);
+            caster->DealDamageMods(damageInfo.target, damageInfo.damage, &damageInfo.absorb);
+        }
 
         // Send log damage message to client
         caster->SendSpellNonMeleeDamageLog(&damageInfo);
@@ -2995,9 +3000,13 @@ void Spell::prepare(SpellCastTargets const* targets, AuraEffect const* triggered
     if (((m_spellInfo->IsChanneled() || m_casttime) && m_caster->GetTypeId() == TYPEID_PLAYER && m_caster->isMoving() &&
         m_spellInfo->InterruptFlags & SPELL_INTERRUPT_FLAG_MOVEMENT) && !m_caster->HasAuraTypeWithAffectMask(SPELL_AURA_CAST_WHILE_WALKING, m_spellInfo))
     {
-        SendCastResult(SPELL_FAILED_MOVING);
-        finish(false);
-        return;
+        // 1. Has casttime, 2. Or doesn't have flag to allow movement during channel
+        if (m_casttime || !m_spellInfo->IsMoveAllowedChannel())
+        {
+            SendCastResult(SPELL_FAILED_MOVING);
+            finish(false);
+            return;
+        }
     }
 
     // set timer base at cast time
@@ -3534,8 +3543,14 @@ void Spell::update(uint32 difftime)
         !m_caster->HasAuraTypeWithAffectMask(SPELL_AURA_CAST_WHILE_WALKING, m_spellInfo))
     {
         // don't cancel for melee, autorepeat, triggered and instant spells
-        if (!IsNextMeleeSwingSpell() && !IsAutoRepeat() && !IsTriggered() && !m_caster->CanCastWhileWalking(m_spellInfo->Id))
-            cancel();
+        if (!IsNextMeleeSwingSpell() && !IsAutoRepeat() && !IsTriggered() && !m_caster->CanCastWhileWalking(m_spellInfo->Id) && m_spellInfo->IsMoveAllowedChannel())
+        {
+            // if charmed by creature, trust the AI not to cheat and allow the cast to proceed
+            // @todo this is a hack, "creature" movesplines don't differentiate turning/moving right now
+            // however, checking what type of movement the spline is for every single spline would be really expensive
+            if (!IS_CRE_OR_VEH_OR_PET_GUID(m_caster->GetCharmerGUID()))
+                cancel();
+        }
     }
 
     switch (m_spellState)
@@ -3646,10 +3661,10 @@ void Spell::finish(bool ok)
         }
         if (!found && !(m_spellInfo->AttributesEx2 & SPELL_ATTR2_NOT_RESET_AUTO_ACTIONS))
         {
-            m_caster->resetAttackTimer(BASE_ATTACK);
+            m_caster->ResetAttackTimer(BASE_ATTACK);
             if (m_caster->haveOffhandWeapon())
-                m_caster->resetAttackTimer(OFF_ATTACK);
-            m_caster->resetAttackTimer(RANGED_ATTACK);
+                m_caster->ResetAttackTimer(OFF_ATTACK);
+            m_caster->ResetAttackTimer(RANGED_ATTACK);
         }
     }
 
@@ -4771,12 +4786,6 @@ void Spell::HandleEffects(Unit* pUnitTarget, Item* pItemTarget, GameObject* pGOT
 
 SpellCastResult Spell::CheckCast(bool strict)
 {
-    enum eCheckCast
-    {
-        NPC_KRENNAN_ARANAS = 35753,
-        SPELL_RESCUE_KRENNAN_ARANAS = 68219,
-    };
-
     Unit* Target = m_targets.GetUnitTarget();
 
     switch (m_spellInfo->Id)
@@ -5656,7 +5665,8 @@ SpellCastResult Spell::CheckCast(bool strict)
             }
             case SPELL_AURA_MOUNTED:
             {
-                if (m_caster->IsInWater())
+                // Fix for the Vashj'ir Mounts.
+                if (m_caster->IsInWater() && !(m_spellInfo->Id == 98718 || m_spellInfo->Id == 75207))
                     return SPELL_FAILED_ONLY_ABOVEWATER;
 
                 // Ignore map check if spell have AreaId. AreaId already checked and this prevent special mount spells
@@ -5669,6 +5679,10 @@ SpellCastResult Spell::CheckCast(bool strict)
 
                 if (m_caster->IsInDisallowedMountForm())
                     return SPELL_FAILED_NOT_SHAPESHIFT;
+
+                // hex & mount
+                if (m_caster->HasAura(51514))
+                    return SPELL_FAILED_CONFUSED;
 
                 break;
             }
@@ -5990,37 +6004,66 @@ SpellCastResult Spell::CheckRange(bool strict)
     if (!strict && m_casttime == 0)
         return SPELL_CAST_OK;
 
-    Unit* target = m_targets.GetUnitTarget();
-    float minRange = 0.0f;
-    float maxRange = 0.0f;
+    float minRange = 0, maxRange = 0;
+    GetMinMaxRange(strict, minRange, maxRange);
+
+    if (IsTriggered() && m_spellInfo->RangeEntry->ID == 1)
+    {
+        float minEffRange = 0, maxEffRange = 0;
+        GetEffectsMinMaxRange(minEffRange, maxEffRange);
+        if (maxEffRange > 0.0f)
+            return SPELL_CAST_OK;
+    }
+
+    if (Unit* target = m_targets.GetUnitTarget())
+        if (target != m_caster)
+        {
+            if (m_caster->GetExactDist(target) > maxRange)
+                return SPELL_FAILED_OUT_OF_RANGE;
+
+            if (minRange > 0.0f && m_caster->GetExactDist(target) < minRange)
+                return SPELL_FAILED_OUT_OF_RANGE;
+
+            if (m_caster->GetTypeId() == TYPEID_PLAYER &&
+                (((m_spellInfo->FacingCasterFlags & SPELL_FACING_FLAG_INFRONT) && !m_caster->HasInArc(static_cast<float>(M_PI), target))
+                    && !m_caster->IsWithinBoundaryRadius(target)))
+                return SPELL_FAILED_UNIT_NOT_INFRONT;
+        }
+
+    if (m_targets.HasDst() && !m_targets.HasTraj())
+    {
+        if (m_caster->GetExactDist(m_targets.GetDstPos()) > maxRange)
+            return SPELL_FAILED_OUT_OF_RANGE;
+        if (minRange > 0.0f && m_caster->GetExactDist(m_targets.GetDstPos()) < minRange)
+            return SPELL_FAILED_OUT_OF_RANGE;
+    }
+
+    return SPELL_CAST_OK;
+}
+
+void Spell::GetMinMaxRange(bool strict, float &minRange, float &maxRange)
+{
+    minRange = 0.0f;
+    maxRange = 0.0f;
     float rangeMod = 0.0f;
     if (strict && IsNextMeleeSwingSpell())
-        maxRange = 100.0f;
-    else if (m_spellInfo->RangeEntry)
     {
-        if (m_spellInfo->RangeEntry->type & SPELL_RANGE_MELEE)
-        {
-            rangeMod = m_caster->GetCombatReach() + 4.0f / 3.0f;
-            if (target)
-                rangeMod += target->GetCombatReach();
-            else
-                rangeMod += m_caster->GetCombatReach();
+        maxRange = 100.0f;
+        return;
+    }
 
-            rangeMod = std::max(rangeMod, NOMINAL_MELEE_RANGE);
+    Unit* target = m_targets.GetUnitTarget();
+    if (m_spellInfo->RangeEntry)
+    {
+        if (target && m_spellInfo->RangeEntry->type & SPELL_RANGE_MELEE)
+        {
+            rangeMod = m_caster->GetMeleeRange(target ? target : m_caster); // when the target is not a unit, take the caster's combat reach as the target's combat reach.
         }
         else
         {
             float meleeRange = 0.0f;
             if (m_spellInfo->RangeEntry->type & SPELL_RANGE_RANGED)
-            {
-                meleeRange = m_caster->GetCombatReach() + 4.0f / 3.0f;
-                if (target)
-                    meleeRange += target->GetCombatReach();
-                else
-                    meleeRange += m_caster->GetCombatReach();
-
-                meleeRange = std::max(meleeRange, NOMINAL_MELEE_RANGE);
-            }
+                meleeRange = m_caster->GetMeleeRange(target ? target : m_caster); // when the target is not a unit, take the caster's combat reach as the target's combat reach.
 
             minRange = m_caster->GetSpellMinRangeForTarget(target, m_spellInfo) + meleeRange;
             maxRange = m_caster->GetSpellMaxRangeForTarget(target, m_spellInfo);
@@ -6038,37 +6081,31 @@ SpellCastResult Spell::CheckRange(bool strict)
 
         if (target && m_caster->isMoving() && target->isMoving() && !m_caster->IsWalking() && !target->IsWalking() &&
             (m_spellInfo->RangeEntry->type & SPELL_RANGE_MELEE || target->GetTypeId() == TYPEID_PLAYER))
-            rangeMod += 5.0f / 3.0f;
+            rangeMod += 8.0f / 3.0f;
     }
 
     if (Player* modOwner = m_caster->GetSpellModOwner())
         modOwner->ApplySpellMod(m_spellInfo->Id, SPELLMOD_RANGE, maxRange, this);
 
     maxRange += rangeMod;
+}
 
-    if (target && target != m_caster)
-    {
-        if (m_caster->GetExactDist(target) > maxRange)
-            return !(_triggeredCastFlags & TRIGGERED_DONT_REPORT_CAST_ERROR) ? SPELL_FAILED_OUT_OF_RANGE : SPELL_FAILED_DONT_REPORT;
-
-        if (minRange > 0.0f && m_caster->GetExactDist(target) < minRange)
-            return !(_triggeredCastFlags & TRIGGERED_DONT_REPORT_CAST_ERROR) ? SPELL_FAILED_OUT_OF_RANGE : SPELL_FAILED_DONT_REPORT;
-
-        if (m_caster->GetTypeId() == TYPEID_PLAYER &&
-            (((m_spellInfo->FacingCasterFlags & SPELL_FACING_FLAG_INFRONT) && !m_caster->HasInArc(static_cast<float>(M_PI), target))
-                && !m_caster->IsWithinBoundaryRadius(target)))
-            return !(_triggeredCastFlags & TRIGGERED_DONT_REPORT_CAST_ERROR) ? SPELL_FAILED_UNIT_NOT_INFRONT : SPELL_FAILED_DONT_REPORT;
-    }
-
-    if (m_targets.HasDst() && !m_targets.HasTraj())
-    {
-        if (m_caster->GetExactDist(m_targets.GetDstPos()) > maxRange)
-            return !(_triggeredCastFlags & TRIGGERED_DONT_REPORT_CAST_ERROR) ? SPELL_FAILED_OUT_OF_RANGE : SPELL_FAILED_DONT_REPORT;
-        if (minRange > 0.0f && m_caster->GetExactDist(m_targets.GetDstPos()) < minRange)
-            return !(_triggeredCastFlags & TRIGGERED_DONT_REPORT_CAST_ERROR) ? SPELL_FAILED_OUT_OF_RANGE : SPELL_FAILED_DONT_REPORT;
-    }
-
-    return SPELL_CAST_OK;
+void Spell::GetEffectsMinMaxRange(float &minRange, float &maxRange)
+{
+    maxRange = 0;
+    for (uint32 i = 0; i < MAX_SPELL_EFFECTS; i++)
+        if (const SpellRadiusEntry* rangeEntry = m_spellInfo->Effects[i].RadiusEntry)
+        {
+            if (rangeEntry->RadiusMax > maxRange)
+                maxRange = rangeEntry->RadiusMax;
+        }
+    minRange = maxRange;
+    for (uint32 i = 0; i < MAX_SPELL_EFFECTS; i++)
+        if (const SpellRadiusEntry* rangeEntry = m_spellInfo->Effects[i].RadiusEntry)
+        {
+            if (rangeEntry->RadiusMin < minRange)
+                minRange = rangeEntry->RadiusMin;
+        }
 }
 
 SpellCastResult Spell::CheckPower()

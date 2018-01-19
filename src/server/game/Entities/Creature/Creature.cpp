@@ -772,14 +772,12 @@ bool Creature::Create(uint32 guidlow, Map* map, uint32 phaseMask, uint32 Entry, 
     ASSERT(map);
     SetMap(map);
 
-    std::set<uint16> phaseIds;
-    if (data)
-        phaseIds = MergePhases(phaseMask, data->phaseIds, GetXPhasesForGroup(data->phaseGroup));
-    else
-        phaseIds = ComputePhaseMaskToIds(phaseMask);
+    if (data && data->phaseId)
+        SetInPhase(data->phaseId, false, true);
 
-    for (uint16 ph : phaseIds)
-        SetInPhase(ph, false, true);
+    if (data && data->phaseGroup)
+        for (auto ph : GetXPhasesForGroup(data->phaseGroup))
+            SetInPhase(ph, false, true);
   
     CreatureTemplate const* cinfo = sObjectMgr->GetCreatureTemplate(Entry);
     if (!cinfo)
@@ -972,14 +970,15 @@ void Creature::SaveToDB()
     }
 
     uint32 mapId = GetTransport() ? GetTransport()->GetGOInfo()->moTransport.mapID : GetMapId();
-    SaveToDB(mapId, data);
+    SaveToDB(mapId, data->spawnMask, GetPhaseMask());
 }
 
-void Creature::SaveToDB(uint32 mapid, CreatureData const* tmpData)
+void Creature::SaveToDB(uint32 mapid, uint32 spawnMask, uint32 phaseMask)
 {
     // update in loaded data
     if (!m_DBTableGuid)
         m_DBTableGuid = GetGUIDLow();
+
     CreatureData& data = sObjectMgr->NewOrExistCreatureData(m_DBTableGuid);
 
     uint32 displayId = GetNativeDisplayId();
@@ -1008,7 +1007,7 @@ void Creature::SaveToDB(uint32 mapid, CreatureData const* tmpData)
     // data->guid = guid must not be updated at save
     data.id = GetEntry();
     data.mapid = mapid;
-    data.phaseMask = tmpData->phaseMask;
+    data.phaseMask = phaseMask;
     data.displayid = displayId;
     data.equipmentId = GetCurrentEquipmentId();
     if (!GetTransport())
@@ -1035,10 +1034,13 @@ void Creature::SaveToDB(uint32 mapid, CreatureData const* tmpData)
     // prevent add data integrity problems
     data.movementType = !m_respawnradius && GetDefaultMovementType() == RANDOM_MOTION_TYPE
         ? IDLE_MOTION_TYPE : GetDefaultMovementType();
-    data.spawnMask = tmpData->spawnMask;
+    data.spawnMask = spawnMask;
     data.npcflag = npcflag;
     data.unit_flags = unit_flags;
     data.dynamicflags = dynamicflags;
+
+    data.phaseId = GetDBPhase() > 0 ? GetDBPhase() : 0;
+    data.phaseGroup = GetDBPhase() < 0 ? abs(GetDBPhase()) : 0;
 
     // update in DB
     SQLTransaction trans = WorldDatabase.BeginTransaction();
@@ -1055,8 +1057,9 @@ void Creature::SaveToDB(uint32 mapid, CreatureData const* tmpData)
     stmt->setUInt16(index++, uint16(mapid));
     stmt->setUInt16(index++, uint16(GetZoneId()));
     stmt->setUInt16(index++, uint16(GetAreaId()));
-    stmt->setUInt8(index++, tmpData->spawnMask);
-    stmt->setString(index++, GetUInt16String(GetPhaseIds()));
+    stmt->setUInt8(index++, spawnMask);
+    stmt->setUInt16(index++, data.phaseId);
+    stmt->setUInt16(index++, data.phaseGroup);
     stmt->setUInt32(index++, displayId);
     stmt->setInt32(index++, int32(GetCurrentEquipmentId()));
     stmt->setFloat(index++, GetPositionX());
@@ -1577,9 +1580,7 @@ void Creature::SetDeathState(DeathState s)
 
             SetMeleeDamageSchool(SpellSchools(cinfo->dmgschool));
             
-            std::set<uint16> phaseIds = MergePhases(creatureData->phaseMask, creatureData->phaseIds, GetXPhasesForGroup(creatureData->phaseGroup));
-            for (uint16 ph : phaseIds)
-                SetInPhase(ph, false, true);
+            // phase gpn39f
         }
 
         Motion_Initialize();
@@ -2141,6 +2142,10 @@ bool Creature::LoadCreaturesAddon(bool reload)
     if (cainfo->emote != 0)
         SetUInt32Value(UNIT_NPC_EMOTESTATE, cainfo->emote);
 
+    SetAIAnimKitId(cainfo->aiAnimKit);
+    SetMovementAnimKitId(cainfo->movementAnimKit);
+    SetMeleeAnimKitId(cainfo->meleeAnimKit);
+
     //Load Path
     if (cainfo->path_id != 0)
         m_path_id = cainfo->path_id;
@@ -2527,6 +2532,26 @@ void Creature::SetPosition(float x, float y, float z, float o)
     GetMap()->CreatureRelocation(this, x, y, z, o);
     if (IsVehicle())
         GetVehicleKit()->RelocatePassengers();
+}
+
+void Creature::SetTransportHomePosition(float x, float y, float z, float o)
+{
+    m_transportHomePosition.Relocate(x, y, z, o);
+}
+
+void Creature::SetTransportHomePosition(const Position &pos)
+{
+    m_transportHomePosition.Relocate(pos);
+}
+
+void Creature::GetTransportHomePosition(float& x, float& y, float& z, float& ori) const
+{
+    m_transportHomePosition.GetPosition(x, y, z, ori);
+}
+
+Position const& Creature::GetTransportHomePosition() const
+{
+    return m_transportHomePosition; 
 }
 
 bool Creature::IsDungeonBoss() const

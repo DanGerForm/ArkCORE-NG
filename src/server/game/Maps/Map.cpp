@@ -223,9 +223,8 @@ _creatureToMoveLock(false), _gameObjectsToMoveLock(false), _dynamicObjectsToMove
 i_mapEntry(sMapStore.LookupEntry(id)), i_spawnMode(SpawnMode), i_InstanceId(InstanceId),
 m_unloadTimer(0), m_VisibleDistance(DEFAULT_VISIBILITY_DISTANCE),
 m_VisibilityNotifyPeriod(DEFAULT_VISIBILITY_NOTIFY_PERIOD),
-m_activeNonPlayersIter(m_activeNonPlayers.end()), _transportsUpdateIter(_transports.end()),
-i_gridExpiry(expiry),
-i_scriptLock(false), _defaultLight(GetDefaultMapLight(id))
+m_activeNonPlayersIter(m_activeNonPlayers.end()), i_gridExpiry(expiry),
+i_scriptLock(false), _defaultLight(GetDefaultMapLight(id)), _transportLock(false)
 {
     m_parentMap = (_parent ? _parent : this);
     for (unsigned int idx=0; idx < MAX_NUMBER_OF_GRIDS; ++idx)
@@ -561,7 +560,7 @@ bool Map::AddToMap(Transport* obj)
     CellCoord cellCoord = Trinity::ComputeCellCoord(obj->GetPositionX(), obj->GetPositionY());
     if (!cellCoord.IsCoordValid())
     {
-        TC_LOG_ERROR("maps", "Map::Add: Object " UI64FMTD " has invalid coordinates X:%f Y:%f grid cell [%u:%u]", obj->GetGUID(), obj->GetPositionX(), obj->GetPositionY(), cellCoord.x_coord, cellCoord.y_coord);
+        TC_LOG_ERROR("maps", "Map::Add: Object %llu has invalid coordinates X:%f Y:%f grid cell [%u:%u]", obj->GetGUID(), obj->GetPositionX(), obj->GetPositionY(), cellCoord.x_coord, cellCoord.y_coord);
         return false; //Should delete object
     }
 
@@ -570,20 +569,22 @@ bool Map::AddToMap(Transport* obj)
 
     // Broadcast creation to players
     if (!GetPlayers().isEmpty())
-    {
         for (Map::PlayerList::const_iterator itr = GetPlayers().begin(); itr != GetPlayers().end(); ++itr)
-        {
-            if (itr->GetSource()->GetTransport() != obj)
-            {
-                UpdateData data(GetId());
-                obj->BuildCreateUpdateBlockForPlayer(&data, itr->GetSource());
-                WorldPacket packet;
-                data.BuildPacket(&packet);
-                itr->GetSource()->SendDirectMessage(&packet);
-            }
-        }
-    }
+            if (Player* player = itr->GetSource())
+                if (Transport* trans = player->GetTransport())
+                    if (trans != obj)
+                    {
+                        UpdateData data(GetId());
+                        WorldPacket packet;
 
+                        if (player->CanSeeOrDetect(obj, false, true))
+                            obj->BuildCreateUpdateBlockForPlayer(&data, player);
+                        else
+                            obj->BuildOutOfRangeUpdateBlock(&data);
+
+                        data.BuildPacket(&packet);
+                        itr->GetSource()->SendDirectMessage(&packet);
+                    }
     return true;
 }
 
@@ -658,6 +659,37 @@ void Map::Update(const uint32 t_diff)
         player->Update(t_diff);
 
         VisitNearbyCellsOf(player, grid_object_update, world_object_update);
+
+        // If player is using far sight, visit that object too
+        if (WorldObject* viewPoint = player->GetViewpoint())
+        {
+            if (Creature* viewCreature = viewPoint->ToCreature())
+                VisitNearbyCellsOf(viewCreature, grid_object_update, world_object_update);
+            else if (DynamicObject* viewObject = viewPoint->ToDynObject())
+                VisitNearbyCellsOf(viewObject, grid_object_update, world_object_update);
+        }
+
+        // Handle updates for creatures in combat with player and are more than 60 yards away
+        if (player->IsInCombat())
+        {
+            std::vector<Creature*> updateList;
+            HostileReference* ref = player->getHostileRefManager().getFirst();
+
+            while (ref)
+            {
+                if (Unit* unit = ref->GetSource()->GetOwner())
+                    if (unit->ToCreature() && unit->GetMapId() == player->GetMapId() && !unit->IsWithinDistInMap(player, GetVisibilityRange(), false))
+                        updateList.push_back(unit->ToCreature());
+
+                ref = ref->next();
+            }
+
+            // Process deferred update list for player
+            for (Creature* c : updateList)
+                VisitNearbyCellsOf(c, grid_object_update, world_object_update);
+        }
+
+        SendSingleTransportUpdate(player);
     }
 
     // non-player active objects, increasing iterator in the loop in case of object removal
@@ -672,16 +704,12 @@ void Map::Update(const uint32 t_diff)
         VisitNearbyCellsOf(obj, grid_object_update, world_object_update);
     }
 
-    for (_transportsUpdateIter = _transports.begin(); _transportsUpdateIter != _transports.end();)
-    {
-        WorldObject* obj = *_transportsUpdateIter;
-        ++_transportsUpdateIter;
-
-        if (!obj->IsInWorld())
-            continue;
-
-        obj->Update(t_diff);
-    }
+    _transportLock = true;
+    for (auto transport : _transports)
+        if (transport->IsInWorld())
+            transport->Update(t_diff);
+    _transportLock = false;
+    DeleteRemovedTransports();
 
     ///- Process necessary scripts
     if (!m_scriptSchedule.empty())
@@ -698,6 +726,63 @@ void Map::Update(const uint32 t_diff)
         ProcessRelocationNotifies(t_diff);
 
     sScriptMgr->OnMapUpdate(this, t_diff);
+}
+
+void Map::SendSingleTransportUpdate()
+{
+    for (m_mapRefIter = m_mapRefManager.begin(); m_mapRefIter != m_mapRefManager.end(); ++m_mapRefIter)
+    {
+        Player* player = m_mapRefIter->GetSource();
+
+        if (!player || !player->IsInWorld())
+            continue;
+
+        SendSingleTransportUpdate(player);
+    }
+}
+
+void Map::SendSingleTransportUpdate(Player* player)
+{
+    if (player->IsInWorld() && player->IsAlive())
+    {
+        UpdateData udata(player->GetMapId());
+        WorldPacket packet;
+        bool _sendUpdate = false;
+
+        for (auto transport : _transports)
+            if (transport->IsInWorld())
+            {
+                eTransportVisibleState state = player->GetTransportVisibleState(transport->GetGUID());
+                eTransportVisibleState stateNew = (player->CanSeeOrDetect(transport, false, true)) ? TRANS_STATE_VISIBLE : TRANS_STATE_NOT_VISIBLE;
+                if (state != stateNew)
+                {
+                    player->SetTransportVisibleState(transport->GetGUID(), stateNew);
+                    _sendUpdate = true;
+                    if (stateNew == TRANS_STATE_VISIBLE)
+                        transport->BuildCreateUpdateBlockForPlayer(&udata, player);
+                    else
+                        transport->BuildOutOfRangeUpdateBlock(&udata);
+                }
+            }
+
+        if (_sendUpdate)
+        {
+            udata.BuildPacket(&packet);
+            player->SendDirectMessage(&packet);
+        }
+    }
+}
+
+void Map::DeleteRemovedTransports()
+{
+    while (_transportRemove.size())
+    {
+        if (Transport* obj = _transportRemove.back())
+        {
+            _transports.erase(obj);
+            _transportRemove.pop_back();
+        }
+    }
 }
 
 struct ResetNotifier
@@ -844,15 +929,8 @@ void Map::RemoveFromMap(Transport* obj, bool remove)
                 itr->GetSource()->SendDirectMessage(&packet);
     }
 
-    if (_transportsUpdateIter != _transports.end())
-    {
-        TransportsContainer::iterator itr = _transports.find(obj);
-        if (itr == _transports.end())
-            return;
-        if (itr == _transportsUpdateIter)
-            ++_transportsUpdateIter;
-        _transports.erase(itr);
-    }
+    if (_transportLock)
+        _transportRemove.push_back(obj);
     else
         _transports.erase(obj);
 
@@ -2245,7 +2323,8 @@ bool Map::GetAreaInfo(float x, float y, float z, uint32 &flags, int32 &adtId, in
         {
             float _mapheight = gmap->getHeight(x, y);
             // z + 2.0f condition taken from GetHeight(), not sure if it's such a great choice...
-            if (z + 2.0f > _mapheight &&  _mapheight > vmap_z)
+            // gpn39f: vmap_z + 0.2f : on some places, the vmgr->getAreaInfo returns a 'to low' value
+            if (z + 2.0f > _mapheight &&  _mapheight > vmap_z + 0.2f)
                 return false;
         }
         return true;
@@ -2423,7 +2502,7 @@ void Map::GetZoneAndAreaIdByAreaFlag(uint32& zoneid, uint32& areaid, uint16 area
 
 bool Map::isInLineOfSight(float x1, float y1, float z1, float x2, float y2, float z2, uint32 phasemask) const
 {
-    bool los1 = VMAP::VMapFactory::createOrGetVMapManager()->isInLineOfSight(GetId(), x1, y1, z1, x2, y2, z2);
+    bool los1 = VMAP::VMapFactory::createOrGetVMapManager()->isInLineOfSight(GetId(), x1, y1, z1, x2, y2, z2); // gpn39f
     bool los2 = _dynamicTree.isInLineOfSight(x1, y1, z1, x2, y2, z2, phasemask);
     return los1 && los2;
 }
@@ -2511,24 +2590,16 @@ void Map::SendInitSelf(Player* player)
 
     // attach to player data current transport data
     if (Transport* transport = player->GetTransport())
-    {
         transport->BuildCreateUpdateBlockForPlayer(&data, player);
-    }
 
     // build data for self presence in world at own client (one time for map)
     player->BuildCreateUpdateBlockForPlayer(&data, player);
 
     // build other passengers at transport also (they always visible and marked as visible and will not send at visibility update at add to map
     if (Transport* transport = player->GetTransport())
-    {
         for (std::set<WorldObject*>::const_iterator itr = transport->GetPassengers().begin(); itr != transport->GetPassengers().end(); ++itr)
-        {
             if (player != (*itr) && player->HaveAtClient(*itr))
-            {
                 (*itr)->BuildCreateUpdateBlockForPlayer(&data, player);
-            }
-        }
-    }
 
     WorldPacket packet;
     data.BuildPacket(&packet);
@@ -2540,7 +2611,7 @@ void Map::SendInitTransports(Player* player)
     // Hack to send out transports
     UpdateData transData(player->GetMapId());
     for (TransportsContainer::const_iterator i = _transports.begin(); i != _transports.end(); ++i)
-        if (*i != player->GetTransport())
+        if (*i != player->GetTransport() && player->IsInPhase(*i))
             (*i)->BuildCreateUpdateBlockForPlayer(&transData, player);
 
     WorldPacket packet;
@@ -2593,6 +2664,13 @@ inline void Map::setNGrid(NGridType *grid, uint32 x, uint32 y)
 
 void Map::DelayedUpdate(const uint32 t_diff)
 {
+    _transportLock = true;
+    for (auto transport : _transports)
+        if (transport->IsInWorld())
+            transport->DelayedUpdate(t_diff);
+    _transportLock = false;
+    DeleteRemovedTransports();
+
     RemoveAllObjectsInRemoveList();
 
     // Don't unload grids if it's battleground, since we may have manually added GOs, creatures, those doesn't load from DB at grid re-load !

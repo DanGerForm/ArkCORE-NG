@@ -36,6 +36,17 @@
 #include "World.h"
 #include "Transport.h"
 
+bool QuaternionData::isUnit() const
+{
+    return fabs(x * x + y * y + z * z + w * w - 1.0f) < 1e-5;
+}
+
+QuaternionData QuaternionData::fromEulerAnglesZYX(float Z, float Y, float X)
+{
+    G3D::Quat quat(G3D::Matrix3::fromEulerAnglesZYX(Z, Y, X));
+    return QuaternionData(quat.x, quat.y, quat.z, quat.w);
+}
+
 GameObject::GameObject() : WorldObject(false), MapObject(),
     m_model(NULL), m_goValue(), m_AI(NULL)
 {
@@ -55,6 +66,7 @@ GameObject::GameObject() : WorldObject(false), MapObject(),
     m_goInfo = nullptr;
     m_ritualOwnerGUID = 0;
     m_goData = nullptr;
+    m_packedRotation = 0;
 
     m_DBTableGuid = 0;
     m_rotation = 0;
@@ -151,7 +163,12 @@ void GameObject::AddToWorld()
         // The state can be changed after GameObject::Create but before GameObject::AddToWorld
         bool toggledState = GetGoType() == GAMEOBJECT_TYPE_CHEST ? getLootState() == GO_READY : (GetGoState() == GO_STATE_READY || IsTransport());
         if (m_model)
-            GetMap()->InsertGameObjectModel(*m_model);
+        {
+            if (Transport* trans = ToTransport())
+                trans->SetDelayedAddModelToMap();
+            else
+                GetMap()->InsertGameObjectModel(*m_model);
+        }
 
         EnableCollision(toggledState);
         WorldObject::AddToWorld();
@@ -217,6 +234,8 @@ bool GameObject::Create(uint32 guidlow, uint32 name_id, Map* map, uint32 phaseMa
         return false;
     }
 
+    GameObjectAddon const* gameObjectAddon = sObjectMgr->GetGameObjectAddon(guidlow);
+
     SetFloatValue(GAMEOBJECT_PARENTROTATION+0, rotation0);
     SetFloatValue(GAMEOBJECT_PARENTROTATION+1, rotation1);
 
@@ -280,6 +299,13 @@ bool GameObject::Create(uint32 guidlow, uint32 name_id, Map* map, uint32 phaseMa
             SetGoAnimProgress(animprogress);
             break;
     }
+
+    if (gameObjectAddon && gameObjectAddon->InvisibilityValue)
+    {
+        m_invisibility.AddFlag(gameObjectAddon->invisibilityType);
+        m_invisibility.AddValue(gameObjectAddon->invisibilityType, gameObjectAddon->InvisibilityValue);
+    }
+
     LastUsedScriptID = GetGOInfo()->ScriptId;
     AIM_Initialize();
 
@@ -514,7 +540,6 @@ void GameObject::Update(uint32 diff)
                     }
                 }
             }
-
             break;
         }
         case GO_ACTIVATED:
@@ -718,10 +743,10 @@ void GameObject::SaveToDB()
         return;
     }
 
-    SaveToDB(GetMapId(), data);
+    SaveToDB(GetMapId(), data->spawnMask, data->phaseMask);
 }
 
-void GameObject::SaveToDB(uint32 mapid, GameObjectData const* tmpData)
+void GameObject::SaveToDB(uint32 mapid, uint32 spawnMask, uint32 phaseMask)
 {
     const GameObjectTemplate* goI = GetGOInfo();
 
@@ -736,23 +761,22 @@ void GameObject::SaveToDB(uint32 mapid, GameObjectData const* tmpData)
     // data->guid = guid must not be updated at save
     data.id = GetEntry();
     data.mapid = mapid;
-    data.zoneId = GetZoneId();
-    data.areaId = GetAreaId();
-    data.phaseMask = tmpData->phaseMask;
-    data.spawnMask = tmpData->spawnMask;
-    data.phaseIds = GetPhaseIds();
     data.posX = GetPositionX();
     data.posY = GetPositionY();
     data.posZ = GetPositionZ();
     data.orientation = GetOrientation();
-    data.rotation0 = GetFloatValue(GAMEOBJECT_PARENTROTATION+0);
-    data.rotation1 = GetFloatValue(GAMEOBJECT_PARENTROTATION+1);
-    data.rotation2 = GetFloatValue(GAMEOBJECT_PARENTROTATION+2);
-    data.rotation3 = GetFloatValue(GAMEOBJECT_PARENTROTATION+3);
+    data.rotation0 = GetFloatValue(GAMEOBJECT_PARENTROTATION + 0);
+    data.rotation1 = GetFloatValue(GAMEOBJECT_PARENTROTATION + 1);
+    data.rotation2 = GetFloatValue(GAMEOBJECT_PARENTROTATION + 2);
+    data.rotation3 = GetFloatValue(GAMEOBJECT_PARENTROTATION + 3);
     data.spawntimesecs = m_spawnedByDefault ? m_respawnDelayTime : -(int32)m_respawnDelayTime;
     data.animprogress = GetGoAnimProgress();
     data.go_state = GetGoState();
+    data.spawnMask = spawnMask;
     data.artKit = GetGoArtKit();
+
+    data.phaseId = GetDBPhase() > 0 ? GetDBPhase() : 0;
+    data.phaseGroup = GetDBPhase() < 0 ? abs(GetDBPhase()) : 0;
 
     // Update in DB
     SQLTransaction trans = WorldDatabase.BeginTransaction();
@@ -765,23 +789,24 @@ void GameObject::SaveToDB(uint32 mapid, GameObjectData const* tmpData)
 
     stmt = WorldDatabase.GetPreparedStatement(WORLD_INS_GAMEOBJECT);
     stmt->setUInt32(index++, m_DBTableGuid);
-    stmt->setUInt32(index++, GetEntry());
-    stmt->setUInt16(index++, uint16(mapid));
-    stmt->setUInt16(index++, uint16(GetZoneId()));
-    stmt->setUInt16(index++, uint16(GetAreaId()));
-    stmt->setUInt8(index++, tmpData->spawnMask);
-    stmt->setString(index++, GetUInt16String(GetPhaseIds()));
-    stmt->setFloat(index++, GetPositionX());
-    stmt->setFloat(index++, GetPositionY());
-    stmt->setFloat(index++, GetPositionZ());
-    stmt->setFloat(index++, GetOrientation());
-    stmt->setFloat(index++, GetFloatValue(GAMEOBJECT_PARENTROTATION));
-    stmt->setFloat(index++, GetFloatValue(GAMEOBJECT_PARENTROTATION+1));
-    stmt->setFloat(index++, GetFloatValue(GAMEOBJECT_PARENTROTATION+2));
-    stmt->setFloat(index++, GetFloatValue(GAMEOBJECT_PARENTROTATION+3));
-    stmt->setInt32(index++, int32(m_respawnDelayTime));
-    stmt->setUInt8(index++, GetGoAnimProgress());
-    stmt->setUInt8(index++, uint8(GetGoState()));
+    stmt->setUInt32(index++, data.id);
+    stmt->setUInt16(index++, data.mapid);
+    stmt->setUInt16(index++, data.zoneId);
+    stmt->setUInt16(index++, data.areaId);
+    stmt->setUInt8(index++, spawnMask);
+    stmt->setUInt16(index++, data.phaseId);
+    stmt->setUInt16(index++, data.phaseGroup);
+    stmt->setFloat(index++, data.posX );
+    stmt->setFloat(index++, data.posY );
+    stmt->setFloat(index++, data.posZ );
+    stmt->setFloat(index++, data.orientation );
+    stmt->setFloat(index++, data.rotation0);
+    stmt->setFloat(index++, data.rotation1);
+    stmt->setFloat(index++, data.rotation2);
+    stmt->setFloat(index++, data.rotation3);
+    stmt->setInt32(index++, data.spawntimesecs);
+    stmt->setUInt8(index++, data.animprogress);
+    stmt->setUInt8(index++, uint8(data.go_state));
     trans->Append(stmt);
 
     WorldDatabase.CommitTransaction(trans);
@@ -819,9 +844,15 @@ bool GameObject::LoadGameObjectFromDB(uint32 guid, Map* map, bool addToMap)
     if (!Create(guid, entry, map, data->phaseMask, x, y, z, ang, rotation0, rotation1, rotation2, rotation3, animprogress, go_state, artKit))
         return false;
 
-    std::set<uint16> phaseIds = MergePhases(data->phaseMask, data->phaseIds, GetXPhasesForGroup(data->phaseGroup));
-    for (uint16 ph : phaseIds)
-        SetInPhase(ph, false, true);
+    if (data->phaseId)
+        SetInPhase(data->phaseId, false, true);
+
+    if (data->phaseGroup)
+    {
+        // Set the gameobject in all the phases of the phasegroup
+        for (auto ph : GetXPhasesForGroup(data->phaseGroup))
+            SetInPhase(ph, false, true);
+    }
 
     if (data->spawntimesecs >= 0)
     {
@@ -937,6 +968,12 @@ bool GameObject::IsDestructibleBuilding() const
         return false;
 
     return gInfo->type == GAMEOBJECT_TYPE_DESTRUCTIBLE_BUILDING;
+}
+
+bool GameObject::IsQuestGiver() const
+{
+    QuestRelationBounds qr = sObjectMgr->GetGOQuestRelationBounds(GetEntry());
+    return qr.first != qr.second;
 }
 
 Unit* GameObject::GetOwner() const
@@ -1892,6 +1929,46 @@ void GameObject::UpdateRotationFields(float rotation2 /*=0.0f*/, float rotation3
 
     SetFloatValue(GAMEOBJECT_PARENTROTATION+2, rotation2);
     SetFloatValue(GAMEOBJECT_PARENTROTATION+3, rotation3);
+}
+
+void GameObject::UpdatePackedRotation()
+{
+    static const int32 PACK_YZ = 1 << 20;
+    static const int32 PACK_X = PACK_YZ << 1;
+
+    static const int32 PACK_YZ_MASK = (PACK_YZ << 1) - 1;
+    static const int32 PACK_X_MASK = (PACK_X << 1) - 1;
+
+    int8 w_sign = (m_worldRotation.w >= 0.f ? 1 : -1);
+    int64 x = int32(m_worldRotation.x * PACK_X)  * w_sign & PACK_X_MASK;
+    int64 y = int32(m_worldRotation.y * PACK_YZ) * w_sign & PACK_YZ_MASK;
+    int64 z = int32(m_worldRotation.z * PACK_YZ) * w_sign & PACK_YZ_MASK;
+    m_packedRotation = z | (y << 21) | (x << 42);
+}
+
+void GameObject::SetWorldRotation(float qx, float qy, float qz, float qw)
+{
+    G3D::Quat rotation(qx, qy, qz, qw);
+    rotation.unitize();
+    m_worldRotation.x = rotation.x;
+    m_worldRotation.y = rotation.y;
+    m_worldRotation.z = rotation.z;
+    m_worldRotation.w = rotation.w;
+    UpdatePackedRotation();
+}
+
+void GameObject::SetParentRotation(QuaternionData const& rotation)
+{
+    SetFloatValue(GAMEOBJECT_PARENTROTATION + 0, rotation.x);
+    SetFloatValue(GAMEOBJECT_PARENTROTATION + 1, rotation.y);
+    SetFloatValue(GAMEOBJECT_PARENTROTATION + 2, rotation.z);
+    SetFloatValue(GAMEOBJECT_PARENTROTATION + 3, rotation.w);
+}
+
+void GameObject::SetWorldRotationAngles(float z_rot, float y_rot, float x_rot)
+{
+    G3D::Quat quat(G3D::Matrix3::fromEulerAnglesZYX(z_rot, y_rot, x_rot));
+    SetWorldRotation(quat.x, quat.y, quat.z, quat.w);
 }
 
 void GameObject::ModifyHealth(int32 change, Unit* attackerOrHealer /*= NULL*/, uint32 spellId /*= 0*/)
