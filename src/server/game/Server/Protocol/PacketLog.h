@@ -21,7 +21,7 @@
 
 #include "Common.h"
 #include <ace/Singleton.h>
-
+#include <mutex>
 enum Direction
 {
     CLIENT_TO_SERVER,
@@ -38,8 +38,7 @@ class PacketLog
     private:
         PacketLog();
         ~PacketLog();
-        std::once_flag _initializeFlag;
-
+		std::once_flag _initializeFlag;
     public:
         void Initialize();
         bool CanLogPacket() const { return (_file != NULL); }

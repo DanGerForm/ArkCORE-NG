@@ -35,8 +35,9 @@ public:
         uint64 HagaraGUID;
         uint64 UltraxionGUID;
         uint64 WarmasterGUID;
+		uint64 SpineofDeathwingGUID;
         uint64 PortalGUID;
-
+		
         uint64 Maelstrom_trall;
         uint64 Maelstrom_kalecgos;
         uint64 Maelstrom_ysera;
@@ -53,7 +54,8 @@ public:
         uint64 arm_tentacle_2;
         uint64 wing_tentacle_1;
         uint64 wing_tentacle_2;
-
+		uint64 uiMaelstormGUID;
+		uint64 uiBackPlates[3];
         void Initialize()
         {
             SetBossNumber(MAX_ENCOUNTER);
@@ -63,7 +65,10 @@ public:
             HagaraGUID = 0;
             UltraxionGUID = 0;
             WarmasterGUID = 0;
+			SpineofDeathwingGUID =0;
             PortalGUID = 0;
+			uint64 uiMaelstormGUID =0;
+			uint64 uiBackPlates =0;
 
             Maelstrom_trall = 0;
             Maelstrom_kalecgos = 0;
@@ -105,6 +110,9 @@ public:
             case NPC_WARMASTER:
                 WarmasterGUID = creature->GetGUID();
                 break;
+			case NPC_SPINE_OF_DEATHWING:
+				SpineofDeathwingGUID = creature->GetGUID();
+				break;
             case NPC_PORTAL:
                 PortalGUID = creature->GetGUID();
                 break;
@@ -155,6 +163,24 @@ public:
                 break;
             }
         }
+
+		void OnGameObjectCreate(GameObject* pGo) override
+		{
+			switch (pGo->GetEntry())
+			{
+			case GO_DEATHWING_BACK_PLATE_1:
+				uiBackPlates[0] = pGo->GetGUID();
+				break;
+			case GO_DEATHWING_BACK_PLATE_2:
+				uiBackPlates[1] = pGo->GetGUID();
+				break;
+			case GO_DEATHWING_BACK_PLATE_3:
+				uiBackPlates[2] = pGo->GetGUID();
+				break;
+			default:
+				break;
+			}
+		}
 
         void SetData(uint32 type, uint32 data)
         {
@@ -209,6 +235,9 @@ public:
                 return Maelstrom_trall;
             case NPC_DEATHWING_1:
                 return DeathwingGUID;
+			case DATA_BACK_PLATE_1: return uiBackPlates[0];
+			case DATA_BACK_PLATE_2: return uiBackPlates[1];
+			case DATA_BACK_PLATE_3: return uiBackPlates[2];
             }
 
             return 0;
@@ -226,6 +255,9 @@ public:
             case BOSS_UNSLEEPING:
             case BOSS_HAGARA:
             case BOSS_WARMASTER:
+			case BOSS_SPINE:
+				if (Creature* pMaelstorm = instance->GetCreature(uiMaelstormGUID))
+					pMaelstorm->SetVisible(state == DONE ? true : false);
             case BOSS_DEATHWING:
                 break;
             case BOSS_ULTRAXION:

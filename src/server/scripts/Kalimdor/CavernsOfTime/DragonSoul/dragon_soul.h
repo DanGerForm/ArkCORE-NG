@@ -23,7 +23,7 @@ enum Bosses
     BOSS_HAGARA             = 3,
     BOSS_ULTRAXION          = 4,
     BOSS_WARMASTER          = 5,
-	DATA_SPINE              = 6,
+	BOSS_SPINE              = 6,
     BOSS_DEATHWING          = 7,
     DATA_PORTALS_ON_OFF     = 8,
     DATA_WAVE               = 9,
