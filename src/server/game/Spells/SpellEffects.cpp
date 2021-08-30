@@ -3322,7 +3322,7 @@ void Spell::EffectSummonType(SpellEffIndex effIndex)
         case 3097:
             numSummons = (damage > 0) ? damage : 1;
             break;
-        case 64:
+        //case 64:  // spell 28473 need numSummons=1
         case 2907:
             numSummons = m_spellInfo->Effects[effIndex].BasePoints;
             break;
@@ -3655,6 +3655,8 @@ void Spell::EffectDispel(SpellEffIndex effIndex)
         else if (m_caster->HasAura(86962))  // Cleansing Waters Rank 2
             m_caster->CastSpell(unitTarget, 86958, true);
     }
+
+    CallScriptDispel();
 }
 
 void Spell::EffectDualWield(SpellEffIndex /*effIndex*/)
@@ -3781,8 +3783,16 @@ void Spell::EffectLearnSkill(SpellEffIndex effIndex)
         return;
 
     uint32 skillid = m_spellInfo->Effects[effIndex].MiscValue;
+    SkillRaceClassInfoEntry const* rcEntry = GetSkillRaceClassInfo(skillid, unitTarget->getRace(), unitTarget->getClass());
+    if (!rcEntry)
+        return;
+
+    SkillTiersEntry const* tier = sSkillTiersStore.LookupEntry(rcEntry->SkillTier);
+    if (!tier)
+        return;
+
     uint16 skillval = unitTarget->ToPlayer()->GetPureSkillValue(skillid);
-    unitTarget->ToPlayer()->SetSkill(skillid, m_spellInfo->Effects[effIndex].CalcValue(), skillval?skillval:1, damage*75);
+    unitTarget->ToPlayer()->SetSkill(skillid, m_spellInfo->Effects[effIndex].CalcValue(), std::max<uint16>(skillval, 1), tier->MaxSkill[damage - 1]);
 }
 
 void Spell::EffectPlayMovie(SpellEffIndex effIndex)
@@ -6471,8 +6481,28 @@ void Spell::EffectCharge(SpellEffIndex /*effIndex*/)
     }
 }
 
-void Spell::EffectChargeDest(SpellEffIndex /*effIndex*/)
+void Spell::EffectChargeDest(SpellEffIndex effIndex)
 {
+    if (!destTarget)
+        return;
+
+    if (effectHandleMode == SPELL_EFFECT_HANDLE_LAUNCH)
+    {
+        Position pos = destTarget->GetPosition();
+        float angle = m_caster->GetRelativeAngle(pos.GetPositionX(), pos.GetPositionY());
+        float dist = m_caster->GetDistance(pos);
+        pos = m_caster->GetFirstCollisionPosition(dist, angle);
+
+        m_caster->GetMotionMaster()->MoveCharge(pos.m_positionX, pos.m_positionY, pos.m_positionZ);
+    }
+    else if (effectHandleMode == SPELL_EFFECT_HANDLE_HIT)
+    {
+        uint32 tSpell = m_spellInfo->Effects[effIndex].TriggerSpell;
+        if (tSpell)
+            m_caster->CastSpell(destTarget->GetPositionX(), destTarget->GetPositionY(), destTarget->GetPositionZ(), tSpell, true, nullptr, nullptr, m_originalCasterGUID);
+    }
+
+    /* gpn39f 
     if (effectHandleMode != SPELL_EFFECT_HANDLE_LAUNCH)
         return;
 
@@ -6485,6 +6515,7 @@ void Spell::EffectChargeDest(SpellEffIndex /*effIndex*/)
 
         m_caster->GetMotionMaster()->MoveCharge(pos.m_positionX, pos.m_positionY, pos.m_positionZ);
     }
+    */
 }
 
 void Spell::EffectKnockBack(SpellEffIndex effIndex)
@@ -7781,7 +7812,6 @@ void Spell::EffectCreateAreaTrigger(SpellEffIndex effIndex)
         delete areaTrigger;
 }
 
-// gpn39f: workaround and test..
 void Spell::EffectTriggerSpell_160(SpellEffIndex effIndex)
 {
     if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT_TARGET)

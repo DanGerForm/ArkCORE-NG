@@ -32,6 +32,21 @@ bool _SpellScript::_Validate(SpellInfo const* entry)
     return true;
 }
 
+bool _SpellScript::_ValidateSpellInfo(uint32 const* begin, uint32 const* end)
+{
+    bool allValid = true;
+    while (begin != end)
+    {
+        if (!sSpellMgr->GetSpellInfo(*begin))
+        {
+            TC_LOG_ERROR("scripts.spells", "_SpellScript::ValidateSpellInfo: Spell %u does not exist.", *begin);
+            allValid = false;
+        }
+        ++begin;
+    }
+    return allValid;
+}
+
 void _SpellScript::_Register()
 {
     m_currentScriptState = SPELL_SCRIPT_STATE_REGISTRATION;
@@ -161,6 +176,16 @@ SpellScript::CastHandler::CastHandler(SpellCastFnType _pCastHandlerScript)
 void SpellScript::CastHandler::Call(SpellScript* spellScript)
 {
     (spellScript->*pCastHandlerScript)();
+}
+
+SpellScript::DispelHandler::DispelHandler(SpellDispelFnType _pDispelHandlerScript)
+{
+    pDispelHandlerScript = _pDispelHandlerScript;
+}
+
+void SpellScript::DispelHandler::Call(SpellScript* spellScript)
+{
+    (spellScript->*pDispelHandlerScript)();
 }
 
 SpellScript::CheckCastHandler::CheckCastHandler(SpellCheckCastFnType checkCastHandlerScript)

@@ -513,7 +513,7 @@ void AddSC_desolace();
 void AddSC_durotar();
 void AddSC_dustwallow_marsh();
 void AddSC_felwood();
-void AddSC_feralas();
+void AddSC_zone_feralas();
 void AddSC_moonglade();
 void AddSC_mulgore();
 void AddSC_orgrimmar();
@@ -841,6 +841,7 @@ void AddSC_zone_echo_isles();
 
 // Events
 void AddSC_event_childrens_week();
+void AddSC_event_midsummer_scripts();
 
 // Pets
 void AddSC_deathknight_pet_scripts();
@@ -1393,7 +1394,7 @@ void AddKalimdorScripts()
     AddSC_durotar();
     AddSC_dustwallow_marsh();
     AddSC_felwood();
-    AddSC_feralas();
+    AddSC_zone_feralas();
     AddSC_moonglade();
     AddSC_mulgore();
     AddSC_orgrimmar();
@@ -1737,6 +1738,7 @@ void AddEventScripts()
 {
 #ifdef SCRIPTS
     AddSC_event_childrens_week();
+    AddSC_event_midsummer_scripts();
 #endif
 }
 

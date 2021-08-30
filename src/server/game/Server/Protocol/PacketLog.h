@@ -22,6 +22,10 @@
 #include "Common.h"
 #include <ace/Singleton.h>
 #include <mutex>
+<<<<<<< HEAD
+=======
+
+>>>>>>> a7304c3075bf8ee7eb5bdf45f31cda01c8626b52
 enum Direction
 {
     CLIENT_TO_SERVER,
@@ -29,17 +33,16 @@ enum Direction
 };
 
 class WorldPacket;
-enum ConnectionType : int8;
 
 class PacketLog
 {
-    friend class ACE_Singleton<PacketLog, ACE_Thread_Mutex>;
-
     private:
         PacketLog();
         ~PacketLog();
 		std::once_flag _initializeFlag;
     public:
+        static PacketLog* instance();
+
         void Initialize();
         bool CanLogPacket() const { return (_file != NULL); }
         bool IsPktLogFormat() const { return (_pktLogType == 1); }
@@ -50,5 +53,5 @@ class PacketLog
         uint8 _pktLogType = 0;
 };
 
-#define sPacketLog ACE_Singleton<PacketLog, ACE_Thread_Mutex>::instance()
+#define sPacketLog PacketLog::instance()
 #endif

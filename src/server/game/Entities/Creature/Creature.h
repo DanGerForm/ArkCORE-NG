@@ -429,6 +429,7 @@ struct TrainerSpellData
     uint32 trainerType;                                     // trainer type based at trainer spells, can be different from creature_template value.
                                                             // req. for correct show non-prof. trainers like weaponmaster, allowed values 0 and 2.
     TrainerSpell const* Find(uint32 spell_id) const;
+    uint16 GetTrainerSkillID() const;
 };
 
 typedef std::map<uint32, time_t> CreatureSpellCooldowns;
@@ -484,6 +485,8 @@ class Creature : public Unit, public GridObject<Creature>, public MapObject
         ReactStates GetReactState() { return m_reactState; }
         bool HasReactState(ReactStates state) const { return (m_reactState == state); }
         void InitializeReactState();
+
+        bool HasMechanicTemplateImmunity(uint32 mask) const;
 
         /// @todo Rename these properly
         bool isCanInteractWithBattleMaster(Player* player, bool msg) const;

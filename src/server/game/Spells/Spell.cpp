@@ -6800,7 +6800,11 @@ bool Spell::IsNextMeleeSwingSpell() const
 bool Spell::IsAutoActionResetSpell() const
 {
     /// @todo changed SPELL_INTERRUPT_FLAG_AUTOATTACK -> SPELL_INTERRUPT_FLAG_INTERRUPT to fix compile - is this check correct at all?
-    return !IsTriggered() && (m_spellInfo->InterruptFlags & SPELL_INTERRUPT_FLAG_INTERRUPT);
+    if (IsTriggered() || !(m_spellInfo->InterruptFlags & SPELL_INTERRUPT_FLAG_INTERRUPT))
+        return false;
+    if (!m_casttime && m_spellInfo->HasAttribute(SPELL_ATTR6_NOT_RESET_SWING_IF_INSTANT))
+        return false;
+    return true;
 }
 
 bool Spell::IsNeedSendToClient() const
@@ -7348,6 +7352,18 @@ void Spell::CallScriptAfterHitHandlers()
         for (; hookItr != hookItrEnd; ++hookItr)
             (*hookItr).Call(*scritr);
 
+        (*scritr)->_FinishScriptCall();
+    }
+}
+
+void Spell::CallScriptDispel()
+{
+    for (std::list<SpellScript*>::iterator scritr = m_loadedScripts.begin(); scritr != m_loadedScripts.end(); ++scritr)
+    {
+        (*scritr)->_PrepareScriptCall(SPELL_SCRIPT_HOOK_AFTER_SUCCESSFUL_DISPEL);
+        std::list<SpellScript::DispelHandler>::iterator hookItrEnd = (*scritr)->OnSuccessfulDispel.end(), hookItr = (*scritr)->OnSuccessfulDispel.begin();
+        for (; hookItr != hookItrEnd; ++hookItr)
+            (*hookItr).Call(*scritr);
         (*scritr)->_FinishScriptCall();
     }
 }
