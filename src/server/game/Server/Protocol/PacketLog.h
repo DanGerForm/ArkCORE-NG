@@ -22,10 +22,7 @@
 #include "Common.h"
 #include <ace/Singleton.h>
 #include <mutex>
-<<<<<<< HEAD
-=======
 
->>>>>>> a7304c3075bf8ee7eb5bdf45f31cda01c8626b52
 enum Direction
 {
     CLIENT_TO_SERVER,
