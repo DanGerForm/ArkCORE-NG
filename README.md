@@ -70,9 +70,9 @@ Read file [THANKS](THANKS)
 
 ## Links
 
-[Forum](http://gpn39f.spdns.de/forum1/)
+[Forum](http://arkania.ddnss.de/)
 
-[Wiki](http://gpn39f.spdns.de/wiki2/)
+[Wiki](http://gpn39f.spdns.de/wiki2)
 
 [Google Drive Monthly Snapshot](https://drive.google.com/drive/folders/0B8q0yc6MkL0naTdpN2xiT2s1bTg)
 
