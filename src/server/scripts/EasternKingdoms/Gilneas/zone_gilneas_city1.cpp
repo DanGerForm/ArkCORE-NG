@@ -4186,7 +4186,10 @@ public:
             player->CastSpell(player, SPELL_FORCE_WORGEN_ALTERED_FORM, true);
             player->CastSpell(player, SPELL_ALTERED_FORM2, true);
             creature->AI()->SetGUID(player->GetGUID(), PLAYER_GUID);
-            creature->AI()->DoAction(EVENT_START_MOVIE);
+            //creature->AI()->DoAction(EVENT_START_MOVIE);
+			player->CastSpell(player, SPELL_CURSE_OF_THE_WORGEN, true);
+			                        player->CastSpell(player, 72799, true);
+						player->SendMovieStart(32);
             return true;
         }
         return false;
@@ -4244,6 +4247,7 @@ public:
                     if (Player* player = sObjectAccessor->GetPlayer(*me, m_playerGUID))
                     {
                         player->CastSpell(player, 72799, true);
+						player->SendMovieStart(32);
                     }
                     break;
                 }
